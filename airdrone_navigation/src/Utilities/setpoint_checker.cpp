@@ -57,7 +57,7 @@ public:
     SetpointChecker() : Node("setpoint_checker") 
     {
         landing_position_sub =
-			this->create_subscription<px4_msgs::msg::LandingPosition>("LAndingPosition_PubSubTopic", 10, std::bind(&SetpointChecker::landing_position_callback, this, _1));
+			this->create_subscription<px4_msgs::msg::LandingPosition>("LandingPosition_PubSubTopic", 10, std::bind(&SetpointChecker::landing_position_callback, this, _1));
 
         local_position_sub =
 			this->create_subscription<px4_msgs::msg::VehicleLocalPosition>("VehicleLocalPosition_PubSubTopic", 10, std::bind(&SetpointChecker::local_position_callback, this, _1));
@@ -171,7 +171,7 @@ void SetpointChecker::setpoint_callback(const geometry_msgs::msg::Point::UniqueP
 
 int main(int argc, char *argv[])
 {
-    RCLCPP_ERROR(rclcpp::get_logger("rclcpp"),"SetPoint Checker node started !");
+    RCLCPP_INFO(rclcpp::get_logger("rclcpp"),"SetPoint Checker node started !");
 
 	setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 	rclcpp::init(argc, argv);
