@@ -1,0 +1,6 @@
+int32 request_type  #Set to 0 for request during mission, 1 for request in the landing phase
+---
+string offboard_status
+---
+string offboard_status  #Set to 0 if behicle has been stopped and ready the execute task, -1 if something goes wrong
+ 

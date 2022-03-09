@@ -1,0 +1,3 @@
+int32 request_type
+---
+bool offboard_exit_status

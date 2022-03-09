@@ -1,0 +1,5 @@
+int32 offboard_time
+---
+bool offboard_status
+---
+bool offboard_finish_status

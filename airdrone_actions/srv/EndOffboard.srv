@@ -1,0 +1,3 @@
+float32 timeout
+---
+bool deactivation_exit_status

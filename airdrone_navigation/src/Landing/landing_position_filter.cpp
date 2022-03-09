@@ -42,6 +42,7 @@
 #include <px4_msgs/msg/landing_position.hpp>
 #include "geometry_msgs/msg/point.hpp"
 #include "std_msgs/msg/bool.hpp"
+#include <px4_msgs/msg/vehicle_command.hpp>
 
 #define MAX_SAFE_RANGE 3
 
@@ -58,23 +59,25 @@ class LandingPosFilter : public rclcpp::Node
 public:
 	LandingPosFilter() : Node("debug_vect_advertiser") {
 
-		RCLCPP_INFO(this->get_logger(), "Landing Position filter node started !");
+	RCLCPP_INFO(this->get_logger(), "Landing Position filter node started !");
 
-#ifdef ROS_DEFAULT_API
-		current_position_pub_ = this->create_publisher<px4_msgs::msg::LandingPosition>("LandingPosition_PubSubTopic", 1);
-		publisher1_ = this->create_publisher<px4_msgs::msg::LandingPosition>("LandingPosition_PubSubTopic_filtered", 1);
-#else
-		//current_position_pub_ = this->create_publisher<px4_msgs::msg::LandingPosition>("LandingPosition_PubSubTopic");
-		//publisher1_ = this->create_publisher<px4_msgs::msg::LandingPosition>("LandingPosition_PubSubTopic_filtered");
-#endif
+	final_phase = false;
+
+	current_position_pub_ = this->create_publisher<px4_msgs::msg::LandingPosition>("LandingPosition_PubSubTopic", 1);
+
+	publisher1_ = this->create_publisher<px4_msgs::msg::LandingPosition>("LandingPosition_PubSubTopic_filtered", 1);
 
     landingTargetPose_sub_ =
 			this->create_subscription<geometry_msgs::msg::Point>("landing_position", 1, std::bind(&LandingPosFilter::position_filter, this, _1));
+
+	FiteringStartStop_sub_ =
+			this->create_subscription<std_msgs::msg::Bool>("StartStopOffboard", 1, std::bind(&LandingPosFilter::start_stop_filter, this, _1));
 
 	timer_ = this->create_wall_timer(
 		20ms, std::bind(&LandingPosFilter::timer_callback, this));
 	}
 
+	bool final_phase;
 private:
 
 	void timer_callback(){}
@@ -116,12 +119,17 @@ void LandingPosFilter::position_filter(const geometry_msgs::msg::Point::UniquePt
 			current_position.y = 0.333*(landing_points[0].y +landing_points[1].y +landing_points[2].y);
 			current_position.z = 0.333*(landing_points[0].z +landing_points[1].z +landing_points[2].z); 
 			
-			if((current_position.x < MAX_SAFE_RANGE) && (current_position.y < MAX_SAFE_RANGE))
+			if((current_position.x < MAX_SAFE_RANGE) && (current_position.y < MAX_SAFE_RANGE) && (final_phase == false))
 			{		
 				current_position.should_land = true;
 				current_position_pub_->publish(current_position);
 			}
-					
+
+			else if (final_phase==true){
+
+				current_position.should_land = false;
+				current_position_pub_->publish(current_position);
+			}		
 			else 
 			{  // Throw Exception
 				OUT_OF_RANGE_POSITION = true;
@@ -149,6 +157,12 @@ void LandingPosFilter::position_filter(const geometry_msgs::msg::Point::UniquePt
 		}
 	}
 	
+}
+
+void LandingPosFilter::start_stop_filter(const std_msgs::msg::Bool::UniquePtr msg)
+{
+   RCLCPP_ERROR(this->get_logger(),"final phase ok!");
+   final_phase = true;
 }
 
 int main(int argc, char *argv[])
