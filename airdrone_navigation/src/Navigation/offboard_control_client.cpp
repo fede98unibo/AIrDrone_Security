@@ -60,11 +60,13 @@ public:
     stp.z = -2.5;
     setpoints.push_back(stp);
 
-    RCLCPP_INFO(this->get_logger(), "Setpoint sequence completed");
+    RCLCPP_INFO(this->get_logger(), "Mission Setpoints:");
     for(int i=0; i< 4;i++)
     {
-      RCLCPP_INFO(this->get_logger(),"Setpoint: %f, %f, %f", setpoints[i].x, setpoints[i].y, setpoints[i].z);
+      RCLCPP_INFO(this->get_logger(),"Setpoint [%d]: %f, %f, %f", i,setpoints[i].x, setpoints[i].y, setpoints[i].z);
     }
+
+    sleep(5);
     
 
     this->client_ptr_ = rclcpp_action::create_client<Offboard>(
@@ -87,7 +89,7 @@ public:
     {
       case Activation:
       {
-        RCLCPP_INFO(this->get_logger(), "Starting offboard request");
+        RCLCPP_INFO(this->get_logger(), "Starting Request for offboard session...");
 
         if (!this->client_ptr_->wait_for_action_server()) {
           RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
@@ -97,7 +99,7 @@ public:
         auto goal_msg = Offboard::Goal();
         goal_msg.request_type = 0; //Useless for now
 
-        RCLCPP_INFO(this->get_logger(), "Sending goal");
+        RCLCPP_INFO(this->get_logger(), "Sending request");
 
         auto send_goal_options = rclcpp_action::Client<Offboard>::SendGoalOptions();
         send_goal_options.goal_response_callback =
@@ -107,10 +109,6 @@ public:
         send_goal_options.result_callback =
           std::bind(&OffboardClient::result_callback, this, _1);
         this->client_ptr_->async_send_goal(goal_msg, send_goal_options);
-
-        if (!this->setpoint_client_ptr_->wait_for_action_server()) {
-          RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
-          rclcpp::shutdown();}
         
         clientState = Waiting;
       
@@ -127,7 +125,20 @@ public:
       {
         RCLCPP_INFO(this->get_logger(), "Sending setpoint goal: %f, %f, %f", setpoints[count].x, setpoints[count].y, setpoints[count].z);
 
+        if(count == 4){
+
+          sleep(5);
+
+          RCLCPP_INFO(this->get_logger(),"Canceling all goals");
+          this->client_ptr_->async_cancel_all_goals(nullptr);
+          rclcpp::shutdown();
+          return;}
+
         sleep(2);
+
+        if (!this->setpoint_client_ptr_->wait_for_action_server()) {
+        RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
+        rclcpp::shutdown();}
 
         auto goal_msg1 = Setpoint::Goal();
         goal_msg1.x = setpoints[count].x;
@@ -143,7 +154,7 @@ public:
           std::bind(&OffboardClient::setpoint_result_callback, this, _1);
         this->setpoint_client_ptr_->async_send_goal(goal_msg1, send_goal_options1);
 
-        RCLCPP_INFO(this->get_logger(), "Switching to Travel");  
+        RCLCPP_INFO(this->get_logger(), "Setpoint goal sent, switching to Travel");  
 
         clientState = Travel;  
       }
@@ -176,12 +187,12 @@ private:
       RCLCPP_INFO(this->get_logger(), "Offboard Setpoint accepted by server");
     }
   }
-  void setpoint_feedback_callback(GoalHandleSetpoint::SharedPtr, const std::shared_ptr<const Setpoint::Feedback> feedback){
+  void setpoint_feedback_callback(GoalHandleSetpoint::SharedPtr, const std::shared_ptr<const Setpoint::Feedback> feedback){}
 
-  }
   void setpoint_result_callback(const GoalHandleSetpoint::WrappedResult & result1){
      
-    if(count<setpoints.size()){
+    if((count<4))
+    {
       RCLCPP_INFO(this->get_logger(),"Setpoint Result received");
       count ++;
       clientState = SetpointState;}
@@ -197,13 +208,11 @@ private:
     }    
   }
 
-  void feedback_callback(
-    GoalHandleOffboard::SharedPtr,
-    const std::shared_ptr<const Offboard::Feedback> feedback)
+  void feedback_callback(GoalHandleOffboard::SharedPtr, const std::shared_ptr<const Offboard::Feedback> feedback)
   {
-
     if((feedback->offboard_status == "Offboard Active") && (active==false))
     {
+      RCLCPP_INFO(this->get_logger(),"Offboard has been correctly activated: READY TO USE");
       active = true;
       clientState = SetpointState;
     }

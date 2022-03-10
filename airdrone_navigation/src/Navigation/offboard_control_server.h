@@ -7,14 +7,13 @@
 #include <stdint.h>
 #include <math.h>
 
+#include "rclcpp/rclcpp.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
+#include "rclcpp_components/register_node_macro.hpp"
+
 #include "airdrone_actions/action/offboard_request.hpp"
 #include "airdrone_actions/action/setpoint.hpp"
 #include "airdrone_actions/srv/offboard_session.hpp"
-
-#include "rclcpp/rclcpp.hpp"
-
-#include "rclcpp_action/rclcpp_action.hpp"
-#include "rclcpp_components/register_node_macro.hpp"
 
 #include <geometry_msgs/msg/point.hpp>
 
@@ -58,6 +57,7 @@ public:
         currentPosition.y = 0;
         currentPosition.z = 0;
         setpntReached = false;
+        offboardActive = false;
 
         using namespace std::placeholders;
         this->action_server = rclcpp_action::create_server<Offboard>(
@@ -87,9 +87,16 @@ public:
 			this->create_subscription<px4_msgs::msg::Timesync>("fmu/timesync/out", 10,
 				[this](const px4_msgs::msg::Timesync::UniquePtr msg) {
 					timestamp_.store(msg->timestamp);
-				});   
+				});
+        
+        //update current position
         vehicle_position_sub = 
-			this->create_subscription<VehicleLocalPosition>("fmu/vehicle_local_position/out", 10, std::bind(&OffboardServer::local_position_callback, this, _1));
+			this->create_subscription<VehicleLocalPosition>("fmu/vehicle_local_position/out", 10, 
+                [this](const VehicleLocalPosition::UniquePtr msg){
+                        currentPosition.x = msg->x;
+                        currentPosition.y = msg->y;
+                        currentPosition.z = msg->z;
+                });   
     }
 
 private:
@@ -130,19 +137,11 @@ private:
 	void publish_offboard_control_mode() const;
 	void publish_trajectory_setpoint();
 	void publish_vehicle_command(uint16_t command, float param1 = 0.0, float param2 = 0.0) const;
-    void local_position_callback(VehicleLocalPosition::SharedPtr local_position);
-
+    
+    //Auxiliary Functions
     vector<vector<float>> generate_polynomial(geometry_msgs::msg::Point dest, float time);
 
 };
-
-
-void OffboardServer::local_position_callback(VehicleLocalPosition::SharedPtr local_position)
-{
-    currentPosition.x = local_position->x;
-    currentPosition.y = local_position->y;
-    currentPosition.z = local_position->z;
-}
 
 }
 

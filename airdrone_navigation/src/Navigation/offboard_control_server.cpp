@@ -59,6 +59,7 @@ void OffboardServer::execute_offboard(const std::shared_ptr<GoalHandleOffboard> 
     trajectory.x = currentPosition.x;
     trajectory.y = currentPosition.y;
     trajectory.z = currentPosition.z;
+    trajectory.yaw = 1.57;
 
     while(rclcpp::ok()) 
     {
