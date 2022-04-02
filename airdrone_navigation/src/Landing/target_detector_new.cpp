@@ -9,7 +9,7 @@ TargetDetector::TargetDetector() : Node("target_detector")
     cv::namedWindow(OPENCV_WINDOW);
 
     // Initialize node parameters, TODO: Use a file.yaml
-    image_path =  "/home/fede/px4_ros_com_ros2/src/airdrone_navigation/src/Landing/reference_images/ReferenceImage1.png";
+    image_path =  "/home/fede/px4_ros_com_ros2/src/airdrone_navigation/src/Landing/reference_images/ReferenceImage.png";
     minHessian = 400;
     ratio_thresh = 0.55;
     minGoodMatch = 5;
@@ -18,7 +18,7 @@ TargetDetector::TargetDetector() : Node("target_detector")
     detector = SURF::create( minHessian );
 
     rmw_qos_profile_t custom_qos = rmw_qos_profile_default;
-    Image_sub_ = image_transport::create_subscription(this, "/image_raw",
+    Image_sub_ = image_transport::create_subscription(this, "/camera/image_raw",
             std::bind(&TargetDetector::imageCallback, this, std::placeholders::_1), "raw", custom_qos);
 
     position_pub_ = 
@@ -59,7 +59,7 @@ void TargetDetector::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr
     auto current_position = px4_msgs::msg::LandingTargetPose();
 
     RCLCPP_INFO(this->get_logger(),"image recieved");
-   
+   px4_msgs::msg::LandingTargetPose();
 	try
 	{
 		
@@ -83,10 +83,13 @@ void TargetDetector::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr
 			
 			vector<float> quadcopter_pose = compute_pose(detected_points);
 			
+            current_position.is_static = true;
 			current_position.x_rel = (quadcopter_pose[1])/100;
 			current_position.y_rel = -(quadcopter_pose[0])/100;
-			current_position.z_rel = -0.1 - (quadcopter_pose[2])/100;
+			current_position.z_rel = -0.5- (quadcopter_pose[2])/100;
 			current_position.rel_pos_valid = true;
+            current_position.rel_vel_valid = false;
+            current_position.abs_pos_valid = true;
 			current_position.timestamp = std::chrono::time_point_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()).time_since_epoch().count();
 
 			position_pub_ -> publish(current_position);
@@ -113,7 +116,7 @@ void TargetDetector::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr
 			this->current_position.z = current_position.z_rel;
 		}
 	}
-	
+	 
 	catch (cv_bridge::Exception& e)
 	{
 		RCLCPP_ERROR(this->get_logger(), "cv_bridge exception: %s", e.what());
@@ -121,9 +124,6 @@ void TargetDetector::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr
 	catch(int target_error_number)
 	{
 		RCLCPP_ERROR(this->get_logger(), "target error number: %d", target_error_number);
-
-		current_position.rel_pos_valid = false;
-		current_position.timestamp = std::chrono::time_point_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()).time_since_epoch().count();
 	}  		    
 
 cv::imshow(OPENCV_WINDOW, cv_ptr->image);
@@ -138,6 +138,7 @@ vector<Point2f> TargetDetector::find_target_points(Mat img)
 {  
     // Exception may occur in this process... if something goes wrong we simply return an empty vector
     try{
+        
         Mat img_scene = img.clone();
 
         //-- Step 1: Detect the keypoints using SURF Detector, compute the descriptors
