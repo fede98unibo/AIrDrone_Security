@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.5)
 project(airdrone_actions)
 
+
 # Default to C99
 if(NOT CMAKE_C_STANDARD)
   set(CMAKE_C_STANDARD 99)
@@ -18,6 +19,7 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "action/Offboard.action"
@@ -26,6 +28,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/OffboardSession.srv"
   "srv/StartOffboard.srv"
   "srv/EndOffboard.srv"
+  "srv/TakePicture.srv"
+  DEPENDENCIES sensor_msgs
 )
 
 ament_package()

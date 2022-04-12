@@ -1,0 +1,4 @@
+bool include_detections
+bool include_geolocalization
+---
+sensor_msgs/Image image
