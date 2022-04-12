@@ -28,7 +28,7 @@ find_package(rclcpp_action REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(airdrone_actions REQUIRED)
 find_package(OpenCV REQUIRED)
-
+find_package(vision_msgs REQUIRED)
 
 # Add Nodes
 #add_executable(LandingPositionFilter src/Landing/landing_position_filter.cpp)
@@ -37,9 +37,8 @@ find_package(OpenCV REQUIRED)
 # add_executable(LandingTargetDetector src/Landing/landing_target_detector_copy.cpp)
 # ament_target_dependencies( LandingTargetDetector rclcpp rclcpp_action rclcpp_components std_msgs geometry_msgs px4_msgs cv_bridge image_transport airdrone_actions)
 
-add_executable(SurfDetector src/Landing/target_detector_new.cpp)
-ament_target_dependencies( SurfDetector rclcpp rclcpp_action rclcpp_components std_msgs geometry_msgs px4_msgs cv_bridge image_transport airdrone_actions OpenCV)
-
+add_executable(SurfDetector src/Landing/target_detector.cpp)
+ament_target_dependencies(SurfDetector rclcpp rclcpp_action rclcpp_components std_msgs geometry_msgs px4_msgs cv_bridge image_transport airdrone_actions OpenCV vision_msgs)
 
 
 ## Offboard Action Server and Client ##
@@ -54,7 +53,8 @@ ament_target_dependencies(offboard_server
   "rclcpp_action"
   "rclcpp_components"
   "px4_msgs"
-  "geometry_msgs")
+  "geometry_msgs"
+  )
 rclcpp_components_register_node(offboard_server PLUGIN "offboard_control_server::OffboardServer" EXECUTABLE offboard_control_server)
 
 install(TARGETS
@@ -74,9 +74,7 @@ ament_target_dependencies(offboard_client
   "rclcpp_components"
   "px4_msgs")
 rclcpp_components_register_node(offboard_client PLUGIN "offboard_control_server::OffboardClient" EXECUTABLE offboard_control_client)
-
-
-
+###
 
 install(TARGETS
   offboard_client
@@ -96,9 +94,21 @@ install(TARGETS
 
 	DESTINATION lib/${PROJECT_NAME})
 
-# Install launch files
+
 install(DIRECTORY
   launch
+  DESTINATION share/${PROJECT_NAME}
+)
+install(DIRECTORY
+  config
+  DESTINATION share/${PROJECT_NAME}
+)
+install(DIRECTORY
+  worlds
+  DESTINATION share/${PROJECT_NAME}
+)
+install(DIRECTORY
+  models
   DESTINATION share/${PROJECT_NAME}
 )
 

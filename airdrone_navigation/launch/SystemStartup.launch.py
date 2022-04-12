@@ -16,8 +16,8 @@ def generate_launch_description():
     gazebo_launch_dir = os.path.join(get_package_share_directory('gazebo_ros'), 'launch')
 
     fpv_racing_gazebo_dir = get_package_share_directory('airdrone_navigation')
-    world = os.path.join(fpv_racing_gazebo_dir, 'worlds', 'ADS_worlds', 'empty.world')
-    model = os.path.join(fpv_racing_gazebo_dir, 'models', 'ADS_models/iris', 'iris.sdf')
+    world = os.path.join(fpv_racing_gazebo_dir, 'worlds', 'ADS_worlds', 'industrial_world.world')
+    model = os.path.join(fpv_racing_gazebo_dir, 'models', 'ADS_models/iris_fpv_cam', 'iris_fpv_cam.sdf')
     #custom_gazebo_models = os.path.join(blackdrones_description_dir, 'models')
     #px4_init = os.path.join(blackdrones_description_dir, 'PX4-init')
 
@@ -25,16 +25,16 @@ def generate_launch_description():
 
     return LaunchDescription([
         SetEnvironmentVariable('GAZEBO_PLUGIN_PATH',
-                               HOME + '/PX4-Autopilot/build/px4_sitl_rtps/build_gazebo'),
-        SetEnvironmentVariable('GAZEBO_MODEL_PATH', HOME + '/PX4-Autopilot/Tools/sitl_gazebo/models'),
+                               HOME + '/px4_latest/PX4-Autopilot/build/px4_sitl_rtps/build_gazebo'),
+        SetEnvironmentVariable('GAZEBO_MODEL_PATH', HOME + '/px4_latest/PX4-Autopilot/Tools/sitl_gazebo/models'),
 	#SetEnvironmentVariable('GAZEBO_MODEL_PATH', HOME + 'px4_ros_com_ros2/install/airdrone_navigation/share/airdrone_navigation/models/ADS_models'),
         SetEnvironmentVariable('PX4_SIM_MODEL', 'iris'),
 
         DeclareLaunchArgument('world', default_value=world),
         DeclareLaunchArgument('model', default_value=model),
-        DeclareLaunchArgument('x', default_value='0.0'),
-        DeclareLaunchArgument('y', default_value='0.0'),
-        DeclareLaunchArgument('z', default_value='0.0'),
+        DeclareLaunchArgument('x', default_value='54.8849'),
+        DeclareLaunchArgument('y', default_value='12.3123'),
+        DeclareLaunchArgument('z', default_value='10.0'),
         DeclareLaunchArgument('R', default_value='0.0'),
         DeclareLaunchArgument('P', default_value='0.0'),
         DeclareLaunchArgument('Y', default_value='0.0'),
@@ -62,19 +62,9 @@ def generate_launch_description():
             ],
             prefix="bash -c 'sleep 5s; $0 $@'",
             output='screen'),
-            
-        ExecuteProcess(
-            cmd=[
-                HOME + '/PX4-Autopilot/build/px4_sitl_rtps/bin/px4',
-                HOME + '/PX4-Autopilot/build/px4_sitl_rtps/etc/',
-                '-s',
-                HOME + '/PX4-Autopilot/build/px4_sitl_rtps/etc/init.d-posix/rcS'
-            ],
-            cwd=PX4_RUN_DIR,
-            output='screen'),
-            
+        
+
         ExecuteProcess(
             cmd=['micrortps_agent', '-t', 'UDP'],
             output='screen'),
-
 ])

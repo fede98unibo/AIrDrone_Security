@@ -91,6 +91,13 @@ void OffboardServer::execute_offboard(const std::shared_ptr<GoalHandleOffboard> 
         else{
         feedback->offboard_status = "Offboard Active";
         goal_handle->publish_feedback(feedback);
+        }        if(serverState == OffState){ 
+        feedback->offboard_status = "Offboard Not Active";
+        goal_handle->publish_feedback(feedback);
+        }
+        else{
+        feedback->offboard_status = "Offboard Active";
+        goal_handle->publish_feedback(feedback);
         }
         
         if (loop_counter == 20) {
@@ -98,8 +105,17 @@ void OffboardServer::execute_offboard(const std::shared_ptr<GoalHandleOffboard> 
                     // Change to Offboard mode after 20 setpoints
                     this->publish_vehicle_command(VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6);
 
-                    //Set server state to idle, now we can receive setpoint
-                    serverState = IdleState;
+                    if(wait_for_command_ack(176,1) == 0)
+                    {
+                        //Set server state to idle, now we can receive setpoint
+                        RCLCPP_INFO(this->get_logger(),"Ack received!");
+                        serverState = IdleState;
+                    }
+
+                    else{
+                        //exit the while loop
+                        break;
+                    }
              }
 
         // offboard_control_mode needs to be paired with trajectory_setpoint
@@ -369,7 +385,40 @@ vector<vector<float>> OffboardServer::generate_polynomial(geometry_msgs::msg::Po
     return poly;
 }
 
+int OffboardServer::wait_for_command_ack(int command_ID, int timeout)
+{
+    int rate = 5;
+    rclcpp::Rate loop_rate(rate);
 
+    int max_count = timeout*rate;
+    int n_iter = 0;
+
+    while(rclcpp::ok() && (n_iter<max_count))
+    {
+        //check if is the right ack
+        if(cmdAck_.command == (unsigned int)command_ID)
+        {
+            //save a copy
+            auto ack = cmdAck_;
+
+            //reset ack
+            cmdAck_.command = -1;
+            cmdAck_.result = -1;
+
+            return ack.result;
+        }
+
+        n_iter++;
+
+        loop_rate.sleep();
+    }
+
+    //reset ack
+    cmdAck_.command = -1;
+    cmdAck_.result = -1;
+
+    return -1;
+}
 
 }
 

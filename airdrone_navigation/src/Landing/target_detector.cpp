@@ -39,6 +39,9 @@ TargetDetector::TargetDetector() : Node("target_detector")
     position_pub_ = 
         this->create_publisher<px4_msgs::msg::LandingTargetPose>("/fmu/landing_target_pose/in", 1);
 
+    detection_pub_ =
+        this->create_publisher<vision_msgs::msg::BoundingBox2D>("/landing_target_detection", 1);
+
     this-> Init();
 
     RCLCPP_INFO(this->get_logger(),"Surf Initialization completed");
@@ -69,6 +72,7 @@ int TargetDetector::Init()
 void TargetDetector::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr &msg)
 {
     auto target_pose = px4_msgs::msg::LandingTargetPose();
+    auto detection_box = vision_msgs::msg::BoundingBox2D();
 
 	try
 	{
@@ -113,6 +117,11 @@ void TargetDetector::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr
                 detected_points[3], Scalar( 0, 255, 0), 4 );
             line( cv_ptr -> image, detected_points[3],
                 detected_points[0], Scalar( 0, 255, 0), 4 );
+
+            //Publishing bounding box
+            detection_box = compute_bbox_info(detected_points);
+            detection_pub_->publish(detection_box);
+
 		}
 	}
 	 
@@ -212,6 +221,40 @@ vector<float> TargetDetector::compute_pose(vector<Point2f> target_points)
     vector<float> pose = tvec;
 
 	return pose;
+}
+
+vision_msgs::msg::BoundingBox2D TargetDetector::compute_bbox_info(vector<Point2f> detected_points)
+{
+    auto box = vision_msgs::msg::BoundingBox2D();
+    box.center.x = 0;
+    box.center.y = 0;
+    float x_max = 0;
+    float y_max = 0;
+    float x_min = 0;
+    float y_min = 0;
+
+    //Baricenter
+    for(auto pt : detected_points)
+    {
+        box.center.x += pt.x;
+        if(pt.x>x_max)
+            x_max = pt.x;
+        else if(pt.x<x_min)
+            x_min = pt.x;
+
+        box.center.y += pt.y;
+        if(pt.y>y_max)
+            y_max = pt.y;
+        else if(pt.y<y_min)
+            y_min = pt.y;
+    }
+
+    box.center.x = box.center.x/4;
+    box.center.y = box.center.y/4;
+    box.size_x = abs(x_max-x_min);
+    box.size_y = abs(y_max-y_min);
+
+    return box;
 }
 
 int main(int argc, char** argv)

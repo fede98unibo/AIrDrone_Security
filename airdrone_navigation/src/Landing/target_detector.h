@@ -6,8 +6,10 @@
 
 #include "std_msgs/msg/float32.hpp"
 #include "geometry_msgs/msg/point.hpp"
+#include "geometry_msgs/msg/pose2_d.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include <px4_msgs/msg/landing_target_pose.hpp>
+#include <vision_msgs/msg/bounding_box2_d.hpp>
 
 #include <cv_bridge/cv_bridge.h>
 #include "image_transport/image_transport.hpp"
@@ -38,6 +40,7 @@ class TargetDetector : public rclcpp::Node
     
         image_transport::Subscriber Image_sub_;
         rclcpp::Publisher<px4_msgs::msg::LandingTargetPose>::SharedPtr position_pub_;
+        rclcpp::Publisher<vision_msgs::msg::BoundingBox2D>::SharedPtr detection_pub_;
         cv_bridge::CvImagePtr cv_ptr;
 
         //*** Private Attribute ***//
@@ -66,6 +69,7 @@ class TargetDetector : public rclcpp::Node
         int Init();
         vector<Point2f> find_target_points(Mat& img);
         vector<float> compute_pose(vector<Point2f> target_points);
+        vision_msgs::msg::BoundingBox2D compute_bbox_info(vector<Point2f> detected_points);
 
         //*** Callbacks ***//
 

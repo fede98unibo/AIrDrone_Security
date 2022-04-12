@@ -21,8 +21,10 @@
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
 #include <px4_msgs/msg/timesync.hpp>
 #include <px4_msgs/msg/vehicle_command.hpp>
+#include <px4_msgs/msg/vehicle_command_ack.hpp>
 #include <px4_msgs/msg/vehicle_control_mode.hpp>
 #include <px4_msgs/msg/vehicle_local_position.hpp>
+
 
 using namespace std::chrono;
 using namespace std::chrono_literals;
@@ -58,6 +60,8 @@ public:
         currentPosition.z = 0;
         setpntReached = false;
         offboardActive = false;
+        cmdAck_.result = -1;
+        cmdAck_.command = -1;
 
         using namespace std::placeholders;
         this->action_server = rclcpp_action::create_server<Offboard>(
@@ -96,7 +100,14 @@ public:
                         currentPosition.x = msg->x;
                         currentPosition.y = msg->y;
                         currentPosition.z = msg->z;
-                });   
+                });
+
+        command_ack_sub = 
+        this->create_subscription<VehicleCommandAck>("fmu/vehicle_command_ack/out", 10, 
+            [this](const VehicleCommandAck::UniquePtr msg){
+                    cmdAck_.command = msg->command;
+                    cmdAck_.result = msg->result;
+            });    
     }
 
 private:
@@ -109,6 +120,7 @@ private:
     geometry_msgs::msg::Point currentPosition;
     bool setpntReached;
     bool offboardActive;
+    VehicleCommandAck cmdAck_;
 
     /***/
 
@@ -118,8 +130,10 @@ private:
     rclcpp::Publisher<OffboardControlMode>::SharedPtr offboard_control_mode_publisher_;
 	rclcpp::Publisher<TrajectorySetpoint>::SharedPtr trajectory_setpoint_publisher_;
 	rclcpp::Publisher<VehicleCommand>::SharedPtr vehicle_command_publisher_;
+    rclcpp::Subscription<VehicleCommandAck>::SharedPtr command_ack_sub;
 	rclcpp::Subscription<Timesync>::SharedPtr timesync_sub_;
     rclcpp::Subscription<VehicleLocalPosition>::SharedPtr vehicle_position_sub;
+    
 
     std::atomic<uint64_t> timestamp_;   //!< common synced timestamped
 
@@ -140,6 +154,7 @@ private:
     
     //Auxiliary Functions
     vector<vector<float>> generate_polynomial(geometry_msgs::msg::Point dest, float time);
+    int wait_for_command_ack(int command_ID, int timeout);
 
 };
 
