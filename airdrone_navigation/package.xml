@@ -3,7 +3,7 @@
 <package format="3">
   <name>airdrone_navigation</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>navigation algorithms for autonomous drone for surveillance and inspections</description>
   <maintainer email="federico@todo.todo">federico</maintainer>
   <license>TODO: License declaration</license>
 
@@ -13,7 +13,13 @@
   <depend>px4_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>image_transport</depend>
+  <depend>airdrone_actions</depend>
   <depend>OpenCv</depend>
+  <depend>vision_msgs</depend>
+  <depend>eigen3_cmake_module</depend>
+  <depend>Eigen3</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
