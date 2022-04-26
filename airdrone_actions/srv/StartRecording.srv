@@ -1,0 +1,3 @@
+string video_name
+---
+bool is_recording

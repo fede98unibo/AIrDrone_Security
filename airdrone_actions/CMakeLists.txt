@@ -25,10 +25,13 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/Offboard.action"
   "action/OffboardRequest.action"
   "action/Setpoint.action"
+  "action/TakeVideo.action"
   "srv/OffboardSession.srv"
   "srv/StartOffboard.srv"
   "srv/EndOffboard.srv"
   "srv/TakePicture.srv"
+  "srv/StartRecording.srv"
+  "srv/StopRecording.srv"
   DEPENDENCIES sensor_msgs
 )
 
