@@ -22,6 +22,7 @@ setup(
         'console_scripts': [
             'camera_server = camera_manager.camera_manager_server:main',
             'camera_client = camera_manager.camera_manager_client:main',
+            'camera_action_client = camera_manager.camera_manager_action_client:main',
         ],
     },
 )
