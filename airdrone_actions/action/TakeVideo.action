@@ -1,5 +1,6 @@
 string video_name
 ---
-int32 elapsed_time
----
 string video_path
+---
+int32 elapsed_time
+sensor_msgs/CompressedImage image

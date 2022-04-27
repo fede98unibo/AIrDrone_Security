@@ -30,8 +30,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/StartOffboard.srv"
   "srv/EndOffboard.srv"
   "srv/TakePicture.srv"
-  "srv/StartRecording.srv"
-  "srv/StopRecording.srv"
   DEPENDENCIES sensor_msgs
 )
 
