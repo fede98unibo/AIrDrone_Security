@@ -10,6 +10,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "rclcpp_components/register_node_macro.hpp"
+#include <tf2/LinearMath/Quaternion.h>
 
 #include "airdrone_actions/action/offboard_request.hpp"
 #include "airdrone_actions/action/setpoint.hpp"
@@ -24,7 +25,7 @@
 #include <px4_msgs/msg/vehicle_command_ack.hpp>
 #include <px4_msgs/msg/vehicle_control_mode.hpp>
 #include <px4_msgs/msg/vehicle_local_position.hpp>
-
+#include <px4_msgs/msg/vehicle_attitude_groundtruth.hpp>
 
 using namespace std::chrono;
 using namespace std::chrono_literals;
@@ -102,6 +103,12 @@ public:
                         currentPosition.z = msg->z;
                 });
 
+        vehicle_attitude_sub_ = 
+            this->create_subscription<VehicleAttitudeGroundtruth>("fmu/vehicle_attitude_groundtruth/out", 10, 
+                [this](const VehicleAttitudeGroundtruth::UniquePtr msg){
+                        std::cout << "attitude: " << msg->q[0] << std::endl;
+                });
+
         command_ack_sub = 
         this->create_subscription<VehicleCommandAck>("fmu/vehicle_command_ack/out", 10, 
             [this](const VehicleCommandAck::UniquePtr msg){
@@ -118,6 +125,8 @@ private:
 
 	TrajectorySetpoint trajectory{};
     geometry_msgs::msg::Point currentPosition;
+    geometry_msgs::msg::Point currentSetpoint;
+    
     bool setpntReached;
     bool offboardActive;
     VehicleCommandAck cmdAck_;
@@ -133,7 +142,7 @@ private:
     rclcpp::Subscription<VehicleCommandAck>::SharedPtr command_ack_sub;
 	rclcpp::Subscription<Timesync>::SharedPtr timesync_sub_;
     rclcpp::Subscription<VehicleLocalPosition>::SharedPtr vehicle_position_sub;
-    
+    rclcpp::Subscription<VehicleAttitudeGroundtruth>::SharedPtr vehicle_attitude_sub_;
 
     std::atomic<uint64_t> timestamp_;   //!< common synced timestamped
 
@@ -146,6 +155,7 @@ private:
     rclcpp_action::CancelResponse handle_setpoint_request_cancel(const std::shared_ptr<GoalHandleSetpoint> goal_handle);
     void handle_setpoint_request_accepted(const std::shared_ptr<GoalHandleSetpoint> goal_handle);
     void execute_setpoint_request(const std::shared_ptr<GoalHandleSetpoint> goal_handle);
+    bool new_setpnt_received{false};
 
 
 	void publish_offboard_control_mode() const;

@@ -13,15 +13,7 @@ rclcpp_action::GoalResponse OffboardServer::handle_offboard_request_goal(const r
         return rclcpp_action::GoalResponse::REJECT;
     }
 
-    //Check request type and set corresponding Server Mode
-    if(goal->request_type == 0){
-        serverMode = MissionMode;
-        RCLCPP_INFO(this->get_logger(), "Received offboard request for Mission Task");}
-    else if(goal->request_type == 1){
-        serverMode = LandingMode;
-        RCLCPP_INFO(this->get_logger(), "Received offboard request for Landing Task");}
-
-    (void)uuid;
+    (void)uuid;  
     
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
 }
@@ -52,21 +44,24 @@ void OffboardServer::execute_offboard(const std::shared_ptr<GoalHandleOffboard> 
 
     auto result = std::make_shared<Offboard::Result>();
 
-    int loop_counter = 0;
-
     //Initilize Trajectory: keep the current position -> HOVERING
     trajectory.x = currentPosition.x;
     trajectory.y = currentPosition.y;
     trajectory.z = currentPosition.z;
     trajectory.yaw = 1.57;
 
+    long int loop_counter = 0; //TODO: Pay attention to overflow....
+
     while(rclcpp::ok()) 
     {
         //check if cancel request has been issued
         if (goal_handle->is_canceling()) 
         {
+            RCLCPP_WARN(this->get_logger(), "Canceling Offboard Session");
+
             //return to mission mode if the offboard goal has been canceled
             this->publish_vehicle_command(VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 3);
+
             if(wait_for_command_ack(176,1) != 0){
                 RCLCPP_ERROR(this->get_logger(),"Ack not received: cannot change mode!");
                 break;
@@ -75,8 +70,6 @@ void OffboardServer::execute_offboard(const std::shared_ptr<GoalHandleOffboard> 
             //send back result
             result->offboard_status = "Offboard Result";
             goal_handle->canceled(result);
-
-            RCLCPP_WARN(this->get_logger(), "Canceling Offboard Session");
 
             //Set server state to off
             serverState = OffState;
@@ -94,33 +87,26 @@ void OffboardServer::execute_offboard(const std::shared_ptr<GoalHandleOffboard> 
         else{
         feedback->offboard_status = "Offboard Active";
         goal_handle->publish_feedback(feedback);
-        }        if(serverState == OffState){ 
-        feedback->offboard_status = "Offboard Not Active";
-        goal_handle->publish_feedback(feedback);
-        }
-        else{
-        feedback->offboard_status = "Offboard Active";
-        goal_handle->publish_feedback(feedback);
-        }
+        }        
         
         if (loop_counter == 20) {
 
-                    // Change to Offboard mode after 20 setpoints
-                    this->publish_vehicle_command(VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6);
+            // Change to Offboard mode after 20 setpoints
+            this->publish_vehicle_command(VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6);
 
-                    if(wait_for_command_ack(176,1) != 0){
-                        RCLCPP_ERROR(this->get_logger(),"Ack not received: cannot change mode!");
-                        break;
-                    }
-                    serverState = IdleState;
-             }
+            if(wait_for_command_ack(176,1) != 0){
+                RCLCPP_ERROR(this->get_logger(),"Ack not received: cannot change mode!");
+                break;
+            }
+
+            serverState = IdleState;
+        }
 
         // offboard_control_mode needs to be paired with trajectory_setpoint
         publish_offboard_control_mode();
         publish_trajectory_setpoint();
+        
         //RCLCPP_INFO(this->get_logger(), "Current trajectory: %f, %f, %f", trajectory.x, trajectory.y, trajectory.z);
-
-        //TODO: check if error occur during the execution, if present exit the loop
 
         loop_rate.sleep();
     }
@@ -130,6 +116,7 @@ void OffboardServer::execute_offboard(const std::shared_ptr<GoalHandleOffboard> 
 
         //switch back to some 'safe mode'
         this->publish_vehicle_command(VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 3);
+
         if(wait_for_command_ack(176,1) != 0){
             RCLCPP_ERROR(this->get_logger(),"Ack not received: cannot change mode!");
         }
@@ -151,10 +138,16 @@ rclcpp_action::GoalResponse OffboardServer::handle_setpoint_request_goal(const r
     RCLCPP_INFO(this->get_logger(),"Received request of Setpoint");
 
     //if the serverState is IDLE we can accept a new setpoint, TODO: handle setpoint queue
-    if(serverState==IdleState)
+    if(serverState == IdleState)
     {
         //switch to busyState
         serverState = BusyState;
+        return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+    }
+    else if(serverState == BusyState)
+    {
+        //switch to new setpoint
+        new_setpnt_received = true;
         return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
     }
     else
@@ -171,25 +164,37 @@ rclcpp_action::CancelResponse OffboardServer::handle_setpoint_request_cancel(con
 void OffboardServer::handle_setpoint_request_accepted(const std::shared_ptr<GoalHandleSetpoint> goal_handle1)
 {
     using namespace std::placeholders;
-    std::thread{std::bind(&OffboardServer::execute_setpoint_request, this, _1), goal_handle1}.detach();
+
+    if((new_setpnt_received == true) && (serverState == BusyState)){
+        auto goal = goal_handle1->get_goal();
+        currentSetpoint.x = goal->x;
+        currentSetpoint.y = goal->y;
+        currentSetpoint.z = goal->z;
+    }  
+    else{
+        std::thread{std::bind(&OffboardServer::execute_setpoint_request, this, _1), goal_handle1}.detach();
+    }
+        
 }
 
 void OffboardServer::execute_setpoint_request(const std::shared_ptr<GoalHandleSetpoint> goal_handle1)
 {
     RCLCPP_INFO(this->get_logger(),"Executing current setpoint");
 
-    //Set loop rate
+    serverState = BusyState;
+
     int rate = 10;
     rclcpp::Rate loop_rate(rate);
 
+    const auto goal = goal_handle1->get_goal();
     auto result = std::make_shared<Setpoint::Result>();
+    auto feed = std::make_shared<Setpoint::Feedback>();
 
     float dt = 1/float(rate);
     float tt = 0;
 
-    float distance2goal=0;
+    float distance2goal = 0;
 
-    const auto goal = goal_handle1->get_goal();
     geometry_msgs::msg::Point destination;
     destination.x = goal->x - currentPosition.x;
     destination.y = goal->y - currentPosition.y;
@@ -218,15 +223,31 @@ void OffboardServer::execute_setpoint_request(const std::shared_ptr<GoalHandleSe
             return;
         }
 
+        //check if a new setpoint has been received
+        if(new_setpnt_received == true){
+
+            new_setpnt_received = false;
+
+            destination.x = currentSetpoint.x - currentPosition.x;
+            destination.y = currentSetpoint.y - currentPosition.y;
+            destination.z = currentSetpoint.z -currentPosition.z;
+            cubic_poly = generate_polynomial(destination,t_max);
+
+            initialPosition.x = trajectory.x;
+            initialPosition.y = trajectory.y;
+            initialPosition.z = trajectory.z;
+
+            tt = 0;            
+        }
+
         //Compute distance from Goal
         distance2goal = sqrt(pow((destination.x+initialPosition.x)-currentPosition.x,2)+
                              pow((destination.y+initialPosition.y)-currentPosition.y,2)+
                              pow(abs(destination.z+initialPosition.z)-abs(currentPosition.z),2));
-        //RCLCPP_INFO(this->get_logger(),"Destionation Z: %f, Current Z: %f", destination.z , currentPosition.z);
-        //RCLCPP_INFO(this->get_logger(),"distance to goal: %f", distance2goal);
+
+        // RCLCPP_INFO(this->get_logger(),"distance to goal: %f", distance2goal);
         
         //Publish feedback
-        auto feed = std::make_shared<Setpoint::Feedback>();
         feed -> distance = distance2goal;
         goal_handle1->publish_feedback(feed);
 
@@ -236,8 +257,6 @@ void OffboardServer::execute_setpoint_request(const std::shared_ptr<GoalHandleSe
             trajectory.x = -(cubic_poly[0][0]+cubic_poly[0][1]*tt+cubic_poly[0][2]*pow(tt,2)+cubic_poly[0][3]*pow(tt,3)) + initialPosition.x;
             trajectory.y = -(cubic_poly[1][0]+cubic_poly[1][1]*tt+cubic_poly[1][2]*pow(tt,2)+cubic_poly[1][3]*pow(tt,3)) + initialPosition.y;
             trajectory.z = -(cubic_poly[2][0]+cubic_poly[2][1]*tt+cubic_poly[2][2]*pow(tt,2)+cubic_poly[2][3]*pow(tt,3)) + initialPosition.z;
-            
-            //RCLCPP_INFO(this->get_logger(),"trajectory: %f, %f, %f", trajectory.x, trajectory.y, trajectory.z);
 
             //increment time until t_max
             tt += dt;
@@ -250,11 +269,10 @@ void OffboardServer::execute_setpoint_request(const std::shared_ptr<GoalHandleSe
         //Check if we reached the goal
         if(distance2goal < 0.2)
         {
-            //result->reached = true; //TODO: check if vehicle switched beck to missio mode before sending the result
+            RCLCPP_INFO(this->get_logger(),"Setpoint reached");
+
             result->reached = true;
             goal_handle1->succeed(result);
-
-            RCLCPP_INFO(this->get_logger(),"Setpoint reached");
 
             //Set server state to idle
             serverState = IdleState;
@@ -263,11 +281,10 @@ void OffboardServer::execute_setpoint_request(const std::shared_ptr<GoalHandleSe
         }
 
         //TODO: check if error occurs
-
         loop_rate.sleep();
     }
 
-    // If we arrive here something went wrong
+    // If we arrive here something went wrong or another setpoint has been received
     if (rclcpp::ok()) {
           
         //Abort the goal

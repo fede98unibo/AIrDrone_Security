@@ -136,6 +136,8 @@ public:
 
         sleep(2);
 
+        RCLCPP_INFO(this->get_logger(), "Sending first setpoint");
+
         if (!this->setpoint_client_ptr_->wait_for_action_server()) {
         RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
         rclcpp::shutdown();}
@@ -154,7 +156,28 @@ public:
           std::bind(&OffboardClient::setpoint_result_callback, this, _1);
         this->setpoint_client_ptr_->async_send_goal(goal_msg1, send_goal_options1);
 
+        // rclcpp::Rate rate(5);
+        // rate.sleep();
+
+        sleep(5);
+
+        RCLCPP_INFO(this->get_logger(), "Sending second setpoint");  
+
+        if (!this->setpoint_client_ptr_->wait_for_action_server()) {
+        RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
+        rclcpp::shutdown();}
+
+        goal_msg1.x = setpoints[count+1].x;
+        goal_msg1.y = setpoints[count+1].y;
+        goal_msg1.z = setpoints[count+1].z;
+
+        this->setpoint_client_ptr_->async_send_goal(goal_msg1, send_goal_options1);
+
         RCLCPP_INFO(this->get_logger(), "Setpoint goal sent, switching to Travel");  
+
+        // rclcpp::Rate rate1(50);
+        // rate1.sleep();
+        sleep(100);
 
         clientState = Travel;  
       }
