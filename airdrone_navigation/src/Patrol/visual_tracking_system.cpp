@@ -67,6 +67,8 @@ void VisualTracker::run_state_tracking()
             return;
         }
 
+        //*********************************** GIMBAL TRACKING ***********************************//
+
         //At the moment track always the first element in the list TODO: handle multiple detections
         boxPosition_ << detectionList_[0].bbox.center.x, detectionList_[0].bbox.center.y, 1;
         Matrix<float,3,1> target_position = A.inverse() * boxPosition_;
@@ -74,19 +76,19 @@ void VisualTracker::run_state_tracking()
         double epsX = -std::atan2(target_position.coeff(0,0),1.0);
         double epsY = std::atan2(target_position.coeff(1,0),1.0);
         
-        gimbalSpeed_ = {0.0,0.5,0.5}; //Gimbal tracking speed
+        gimbalSpeed_ = {0.0,0.5,0.5}; //Gimbal tracking speed -- Costant
 
         //***  YAW PI CONTROLLLER ***//
-        if(epsX > MARGIN_ERROR || epsX < -MARGIN_ERROR){
+        if(abs(epsX) > MARGIN_ERROR){
 
             det_interval = detTime_ - last_detTime_;
 
-            RPY_[2] += K_p * epsX + K_i * epsX * det_interval.count();
+            RPY_[2] += K_p * epsX  + K_i * epsX * det_interval.count();
         
         }
 
         //***  PITCH PI CONTROLLLER ***//
-        if(epsY > MARGIN_ERROR || epsY < -MARGIN_ERROR){
+        if(abs(epsY) > MARGIN_ERROR){
 
             det_interval = detTime_ - last_detTime_;
 
@@ -94,29 +96,25 @@ void VisualTracker::run_state_tracking()
         }
 
         last_detTime_ = detTime_;
+
+
         
 
-        //Yaw speed sign
-        if(epsX > 0)
-            gimbalSpeed_[2] = -gimbalSpeed_[2];
-
-        //pitch speed sign
-        if(epsY < 0)
-        {
-            gimbalSpeed_[1] = -gimbalSpeed_[1];
-        }
-        
-        //Map yaw into [-PI,PI]
-        if(RPY_[2]>M_PI)
-            RPY_[2] = RPY_[2]-2*M_PI;
-        else if(RPY_[2] <-M_PI)
-            RPY_[2] = RPY_[2] +2*M_PI;
+        check_controller_limits(epsX,epsY);
         
         publish_gimbal_attitude(RPY_,gimbalSpeed_);
         
-        detectionList_.clear();
+        
 
+        //*********************************** TARGET POSITION TRACKING ***********************************//
+
+        compute_target_position(vehiclePosition_,targetPosition_);
+
+        std::cout << "Target Position: " << targetPosition_.x <<","<<targetPosition_.y<<"," << std::endl;
+
+        detectionList_.clear();
     }
+
     else
     {
         //If target is lost switch to stabilized mode
@@ -143,6 +141,44 @@ void VisualTracker::publish_gimbal_attitude(std::array<double,3> rpy, std::array
     gimbalAttitude_.angular_velocity_z = gimbal_speed[2];
 
     gimbal_attitude_pub_->publish(gimbalAttitude_);
+
+}
+
+void VisualTracker::check_controller_limits(double azimuth_error, double elevation_error)
+{
+    //Yaw speed sign
+    if( azimuth_error > 0)
+        gimbalSpeed_[2] = -gimbalSpeed_[2];
+
+    //pitch speed sign
+    if(elevation_error < 0)
+        gimbalSpeed_[1] = -gimbalSpeed_[1];
+
+    
+    //Map yaw into [-PI,PI]
+    if(RPY_[2]>M_PI)
+        RPY_[2] = RPY_[2]-2*M_PI;
+    else if(RPY_[2] <-M_PI)
+        RPY_[2] = RPY_[2] +2*M_PI;
+}
+
+void VisualTracker::compute_target_position(px4_msgs::msg::VehicleLocalPosition& vehicle_position, px4_msgs::msg::VehicleLocalPosition& target_position)
+{
+    double altitude = -vehicle_position.z;
+
+    double alpha = M_PI_2 - (M_PI_2 - RPY_[1]);
+
+    double distance = altitude/tan(alpha);
+
+    double dx,dy;
+
+    dx = distance * sin(RPY_[2] + M_PI);
+    dy = distance * cos(RPY_[2] + M_PI);
+
+    //Target Position in Local NED Reference Frame
+    target_position.x = vehicle_position.x + dx;
+    target_position.y = vehicle_position.y + dy;
+    target_position.z = 0.0;
 
 }
 
