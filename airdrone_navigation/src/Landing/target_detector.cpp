@@ -1,4 +1,8 @@
+// TARGET_DETECTOR.CPP
+
 #include "target_detector.h"
+
+// -------------------------------------- NODE INIT --------------------------------------
 
 TargetDetector::TargetDetector() : Node("target_detector")
 {
@@ -12,13 +16,13 @@ TargetDetector::TargetDetector() : Node("target_detector")
     // this->get_parameter("min_good_match", minGoodMatch_);
 
     simulation_ = true;
-    image_path_ = "/home/fede/px4_ros_com_ros2/src/airdrone_navigation/src/Landing/reference_images/ReferenceImage.png";
+    image_path_ = "/home/lorenzo/px4_ros_com_ros2/src/airdrone_navigation/src/Landing/reference_images/ReferenceImage.png"; // check path when working on a different pc!
     target_dim_ = 30.0;
     minHessian_ = 400;
     ratio_thresh_ = 0.55;
     minGoodMatch_ = 5;
 
-    if(simulation_==true){
+    if (simulation_==true){
         camera_matrix_ = ( Mat_<double>(3,3) << 277.191, 0, 160.5, 0, 277.191, 120.5, 0, 0, 1) ;             
         dist_coeff_ = ( Mat_<double>(5,1) << 0, 0, 0, 0, 0) ;
     }
@@ -27,12 +31,15 @@ TargetDetector::TargetDetector() : Node("target_detector")
         dist_coeff_ = ( Mat_<double>(5,1) << 0.037894, 0.83262, -0.0036415, -0.0061397, -5.379875) ;
     }
 
-    landing_points_ = { Point2f(target_dim_,-target_dim_), Point2f(target_dim_,target_dim_), Point2f(-target_dim_,target_dim_), Point2f(-target_dim_,-target_dim_)};
+    landing_points_ = { Point2f(target_dim_,-target_dim_), Point2f(target_dim_,target_dim_), Point2f(-target_dim_,target_dim_), Point2f(-target_dim_,-target_dim_) };
     
     detector_ = SURF::create( minHessian_ );
     matcher_ = DescriptorMatcher::create(DescriptorMatcher::FLANNBASED);
 
-    kalman = std::make_shared<KalmanFilter>();
+    //auto kalman = std::make_shared<KalmanFilter>();     // KALMAN
+    
+    RCLCPP_INFO(this->get_logger(),"Intialized Kalman filter");
+
 
     rmw_qos_profile_t custom_qos = rmw_qos_profile_default;
     Image_sub_ = image_transport::create_subscription(this, "/camera/image_raw",
@@ -49,6 +56,8 @@ TargetDetector::TargetDetector() : Node("target_detector")
     RCLCPP_INFO(this->get_logger(),"Surf Initialization completed");
 }
 
+
+// -------------------------------------- TARGET DETECTOR INIT --------------------------------------
 /*
 * @brief Callback: Initialize Node, find salient point on the target image using SURF algorithm
 */
@@ -58,7 +67,7 @@ int TargetDetector::Init()
 
     if (img_object_.empty())
     {
-        cout << "Could not open or find the image!\n" << endl;
+        std::cout << "Could not open or find the image!\n" << std::endl;
         return -1;
     }
 
@@ -68,6 +77,8 @@ int TargetDetector::Init()
     return 0;
 }
 
+
+// -------------------------------------- IMAGE CALLBACK --------------------------------------
 /*
 * @brief Callback: whenever an image is received it is stored as in order perform computation
 */
@@ -75,30 +86,60 @@ void TargetDetector::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr
 {
     auto target_pose = px4_msgs::msg::LandingTargetPose();
     auto detection_box = vision_msgs::msg::BoundingBox2D();
+    auto predicted_box = vision_msgs::msg::BoundingBox2D(); // box predicted in case of no detection
 
 	try
 	{
         cv_ptr = cv_bridge::toCvCopy(msg, msg->encoding);
 
-		vector<Point2f> detected_points = find_target_points(cv_ptr->image);
-
-        detection_box = compute_bbox_info(detected_points);
-
-        kalman->predict(detection_box);
-
-        detection_box = kalman->update();
+		std::vector<Point2f> detected_points = find_target_points(cv_ptr->image); // detect points
+        
+        //kalman->predict(detection_box); // KALMAN
+        //kalman.predict(detection_box);
+        //detection_box = kalman->update();   // KALMAN
+        //detection_box = kalman.update();
+        //detection_box = kalman.correct();
 
         //TODO: from detection box to filterd points
         // fare in modo che il kalman filter agisca anche quando non vengono detectati i frame
         // inserire un massimo numero di frame senza i quali la detection si interrompe --> reset filter
 
-		if(detected_points.empty()){
-			RCLCPP_WARN(this->get_logger(), "No-Detection in current frame");
+		if (detected_points.empty()) {
+
+            if (!detection_timed_out) {
+                ++no_detection_count; // increment the number of consecutive frames without detection
+                predicted_box = kalman.predict(detection_box); // predict bounding box
+                std::cout << "\npredicting box\n";
+                RCLCPP_WARN(this->get_logger(), "No-Detection in current frame");
+
+                // VISUALIZATION of Predicted points
+                std::vector<Point2f> predicted_points = points_from_bbox(predicted_box);
+                display_points_lines(predicted_points,255,255,0);
+            }
+
+            // print an error after 50 frames without detection
+            if (no_detection_count > 50) {
+                detection_timed_out = true;
+                kalman.reset(); // reset filter variables
+                RCLCPP_ERROR(this->get_logger(), "Target detection timed out!");
+                no_detection_count = 0;
+            }
+
+
 		}
 
-		else
-		{			
-			vector<float> quadcopter_pose = compute_pose(detected_points);
+		else // if there are detected points
+		{
+            detection_box = compute_bbox_info(detected_points); // compute bounding box based on detected points
+
+            detection_timed_out = false;
+            no_detection_count = 0;
+
+            predicted_box = kalman.predict(detection_box); // predict bounding box
+            detection_box = kalman.correct(); // correct prediction
+            std::cout << "\npredicted and corrected box\n";
+
+			std::vector<float> quadcopter_pose = compute_pose(detected_points);
 
             target_pose.timestamp = std::chrono::time_point_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()).time_since_epoch().count();
             target_pose.is_static = true;
@@ -112,7 +153,7 @@ void TargetDetector::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr
             target_pose.y_abs = 0;
             target_pose.z_abs = 0;
 
-			position_pub_ -> publish(target_pose);
+			position_pub_ -> publish(target_pose); // publish target position on landing_target_pose topic
 
 			std::cout<<"----------------"<<std::endl;
 			std::cout<<"Target detected:"<<target_pose.rel_pos_valid<<std::endl;
@@ -120,20 +161,27 @@ void TargetDetector::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr
 			std::cout<<"y:"<<target_pose.y_rel<<std::endl;
 			std::cout<<"z:"<<target_pose.z_rel<<std::endl;
 
-            //-- Draw lines between the corners (the mapped object in the scene - image_2 )
-            line( cv_ptr -> image, detected_points[0],
-                detected_points[1], Scalar(0, 255, 0), 4 );
-            line( cv_ptr -> image, detected_points[1],
-                detected_points[2], Scalar( 0, 255, 0), 4 );
-            line( cv_ptr -> image, detected_points[2],
-                detected_points[3], Scalar( 0, 255, 0), 4 );
-            line( cv_ptr -> image, detected_points[3],
-                detected_points[0], Scalar( 0, 255, 0), 4 );
+
+            // DRAWINGS
+
+            // Raw points
+            display_points_lines(detected_points,255,0,0);
+
+            // VISUALIZATION of Corrected (filtered) points
+            std::vector<Point2f> filtered_points = points_from_bbox(detection_box);
+            display_points_lines(filtered_points,0,255,0);
+
+            //std::cout << filtered_points[0] << std::endl;
+            //std::cout << filtered_points[1] << std::endl;
+            //std::cout << filtered_points[2] << std::endl;
+            //std::cout << filtered_points[3] << std::endl;
+
 
             //Publishing bounding box
-            detection_pub_->publish(detection_box);
+            detection_pub_->publish(detection_box); // filtered box
 
 		}
+        // insert visualization here
 	}
 	 
 	catch (cv_bridge::Exception& e)
@@ -141,14 +189,17 @@ void TargetDetector::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr
 		RCLCPP_ERROR(this->get_logger(), "cv_bridge exception: %s", e.what());
 	}		    
 
+    cv::namedWindow("Downward Camera", cv::WINDOW_NORMAL);
     cv::imshow("Downward Camera", cv_ptr->image);
-    cv::waitKey(3);}
+    //cv::imshow("Downward Camera, filtered box", cv_ptr->image);
+    cv::waitKey(3);
+}
 
-
+// -------------------------------------- FIND TARGET POINTS --------------------------------------
 /*
 * @brief: find target points from downcamera's image frame
 */
-vector<Point2f> TargetDetector::find_target_points(Mat& img)
+std::vector<Point2f> TargetDetector::find_target_points(Mat& img)
 {  
     // Exception may occur in this process... if something goes wrong we simply return an empty vector
     try{
@@ -209,10 +260,11 @@ vector<Point2f> TargetDetector::find_target_points(Mat& img)
     }
 }
 
+// -------------------------------------- COMPUTE POSE --------------------------------------
 /*
 * @brief: compute pose from target points
 */
-vector<float> TargetDetector::compute_pose(vector<Point2f> target_points)
+std::vector<float> TargetDetector::compute_pose(std::vector<Point2f> target_points)
 {
 	// Undistort image
 	std::vector<Point2f> detected_points_undistort;
@@ -229,12 +281,14 @@ vector<float> TargetDetector::compute_pose(vector<Point2f> target_points)
 	
 	//***end***//
 
-    vector<float> pose = tvec;
+    std::vector<float> pose = tvec;
 
 	return pose;
 }
 
-vision_msgs::msg::BoundingBox2D TargetDetector::compute_bbox_info(vector<Point2f> detected_points)
+// -------------------------------------- COMPUTE BBOX --------------------------------------
+
+vision_msgs::msg::BoundingBox2D TargetDetector::compute_bbox_info(std::vector<Point2f> detected_points)
 {
     auto box = vision_msgs::msg::BoundingBox2D();
     box.center.x = 0;
@@ -258,15 +312,53 @@ vision_msgs::msg::BoundingBox2D TargetDetector::compute_bbox_info(vector<Point2f
             y_max = pt.y;
         else if(pt.y<y_min)
             y_min = pt.y;
+
     }
 
     box.center.x = box.center.x/4;
     box.center.y = box.center.y/4;
     box.size_x = abs(x_max-x_min);
     box.size_y = abs(y_max-y_min);
+    // box.center.theta = 
 
     return box;
 }
+
+std::vector<Point2f> TargetDetector::points_from_bbox(vision_msgs::msg::BoundingBox2D box) {
+    std::vector<Point2f> predicted_points(5); // 4 corners and the center
+    predicted_points[0].x = box.center.x + box.size_x/2;
+    predicted_points[1].x = box.center.x + box.size_x/2;
+    predicted_points[2].x = box.center.x - box.size_x/2;
+    predicted_points[3].x = box.center.x - box.size_x/2;
+    predicted_points[0].y = box.center.y + box.size_y/2;
+    predicted_points[1].y = box.center.y - box.size_y/2;
+    predicted_points[2].y = box.center.y - box.size_y/2;
+    predicted_points[3].y = box.center.y + box.size_y/2;
+    predicted_points[4].x = box.center.x; // center x
+    predicted_points[4].y = box.center.y; // center y
+
+    return predicted_points;
+}
+
+void TargetDetector::display_points_lines(std::vector<Point2f> points, int R, int G, int B) {
+    const int radius = 5; // radius of circle
+    // draw line between points
+    line( cv_ptr -> image, points[0], points[1], Scalar(B, G, R), 3 );
+    line( cv_ptr -> image, points[1], points[2], Scalar(B, G, R), 3 );
+    line( cv_ptr -> image, points[2], points[3], Scalar(B, G, R), 3 );
+    line( cv_ptr -> image, points[3], points[0], Scalar(B, G, R), 3 );
+    // draw points
+    circle(cv_ptr -> image, points[0], radius, Scalar(B, G, R), 4 );
+    circle(cv_ptr -> image, points[1], radius, Scalar(B, G, R), 4 );
+    circle(cv_ptr -> image, points[2], radius, Scalar(B, G, R), 4 );
+    circle(cv_ptr -> image, points[3], radius, Scalar(B, G, R), 4 );
+    if (points[4].x != 0 && points[4].y != 0) // check if exist a fifth element (it is not the case if we are displaying raw points)
+        circle(cv_ptr -> image, points[4], radius, Scalar(B, G, R), -1 ); // center
+
+}
+
+
+// -------------------------------------- MAIN --------------------------------------
 
 int main(int argc, char** argv)
 {

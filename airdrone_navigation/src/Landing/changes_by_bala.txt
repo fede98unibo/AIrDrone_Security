@@ -1,0 +1,33 @@
+CAMBIAMENTI FATTI A TARGET DETECTOR
+
+-eliminato #include stdlib.h ---> sostituito con le librerie string e vector che sono proprie del C++
+-eliminato using namespace std: è considerato bad practice (aggiunti std::string e std::vector dove serviva)
+-aggiunto header guard (#ifndef ... #define ... #endif)
+-aggiunto il return nella seconda funzione del kalman filter
+
+-momentaneamente rimossi gli shared pointers e instanziata la classe nel modo solito
+
+
+-modificato il file kalman filter.h dopo aver fatto le prove sul file eigen.cpp
+-aggiunto theta (fa parte del bounding box message)
+-aggiunti commenti qua e là
+-la funzione kalman.predict ritorna una predicted box
+
+-implementato il kalman filtering
+
+-aggiunte funzioni per calcolare i punti dalla bbox e per la visualizzazione
+
+
+--------------- TO DO ---------------
+
+quadcopter_pose è calcolato solo se ci sono tetected_points, si dovrebbe calcolare sempre
+
+MODIFICARE LA FUNZIONE compute_bbox_info PER CALCOLARE ANCHE L'ANGOLO, altrimenti la box ha angolo sempre 0 e l'algoritmo non è robusto alle rotazioni della piattaforma
+IL SURF sembra non essere invariante alla rotazione! è perchè non calcoliamo l'angolo della bounding box?
+
+RISOLVERE PROBLEMA DI VISUALIZZAZIONE BOX
+
+-una volta risolto il ptroblema della visualizzazione della box si possono estrarre i punti filtrati tramite l'apposita funzione e passare quelli alla funzione compute_pose
+-calcoare l'angolo della bbox dati i punti
+provare a printare la differenza tra le size della box filtrata e quelle derivate dai punti grezzi
+

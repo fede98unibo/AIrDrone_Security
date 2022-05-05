@@ -1,6 +1,11 @@
-#include <stdlib.h>
+#ifndef TARGET_DETECTOR_H
+#define TARGET_DETECTOR_H
+
+//#include <stdlib.h>
 #include <functional>
 #include <chrono>
+#include <string>
+#include <vector>
 
 #include "rclcpp/rclcpp.hpp"
 
@@ -22,9 +27,9 @@
 #include "opencv2/features2d.hpp"
 #include "opencv2/xfeatures2d.hpp"
 
-#include "kalman_filter.hpp"
+#include "kalman_filter.h"
 
-using namespace std;
+//using namespace std;
 using namespace cv;
 using namespace cv::xfeatures2d;
 using std::placeholders::_1;
@@ -37,23 +42,26 @@ class TargetDetector : public rclcpp::Node
         TargetDetector();
 
     private:
-
+        //*** Private Attribute ***//
+        
         //*** PUBLISHERs/SUBSCRIBERs ***//
-    
         image_transport::Subscriber Image_sub_;
         rclcpp::Publisher<px4_msgs::msg::LandingTargetPose>::SharedPtr position_pub_;
         rclcpp::Publisher<vision_msgs::msg::BoundingBox2D>::SharedPtr detection_pub_;
         cv_bridge::CvImagePtr cv_ptr;
 
-        std::shared_ptr<KalmanFilter> kalman;
+        //std::shared_ptr<KalmanFilter>;    // KALMAN
+        KalmanFilter kalman;
+        // counter used to count the number of frames without detection
+        unsigned int no_detection_count = 0;
+        bool detection_timed_out = false;
 
-        //*** Private Attribute ***//
         bool simulation_;
 
         std::string image_path_;
 
         float target_dim_;
-        vector<Point2f> landing_points_;
+        std::vector<Point2f> landing_points_;
 
         Mat camera_matrix_;
         Mat dist_coeff_;
@@ -71,12 +79,16 @@ class TargetDetector : public rclcpp::Node
         //*** Private Methods ***//
 
         int Init();
-        vector<Point2f> find_target_points(Mat& img);
-        vector<float> compute_pose(vector<Point2f> target_points);
-        vision_msgs::msg::BoundingBox2D compute_bbox_info(vector<Point2f> detected_points);
+        std::vector<Point2f> find_target_points(Mat& img);
+        std::vector<float> compute_pose(std::vector<Point2f> target_points);
+        vision_msgs::msg::BoundingBox2D compute_bbox_info(std::vector<Point2f> detected_points);
+        std::vector<Point2f> points_from_bbox(vision_msgs::msg::BoundingBox2D box); // compute vector of 4 vertexes points from a bounding box
+        void display_points_lines(std::vector<Point2f> points, int R, int G, int B); // draw points and lines connecting them given a vector of points and RGB color
 
         //*** Callbacks ***//
 
         void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr &msg);
         void timer_callback();
 };
+
+#endif
