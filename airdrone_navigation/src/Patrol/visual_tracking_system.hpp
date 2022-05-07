@@ -5,9 +5,15 @@
 #include <memory>
 #include <string>
 #include <cmath>
+#include <future>
+#include <sstream>
+#include <unistd.h>
+#include "rclcpp/rate.hpp"
 #include <Eigen/Dense>
 
 #include "rclcpp/rclcpp.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
+
 #include <tf2/LinearMath/Quaternion.h>
 
 #include <px4_msgs/msg/gimbal_manager_set_attitude.hpp>
@@ -15,6 +21,8 @@
 #include <px4_msgs/msg/timesync.hpp>
 #include "vision_msgs/msg/detection2_d_array.hpp"
 #include "vision_msgs/msg/detection2_d.hpp"
+#include "airdrone_actions/action/setpoint.hpp"
+#include "airdrone_actions/action/offboard_request.hpp"
 
 #define MARGIN_ERROR 0.05 // 10 deg error precision
 
@@ -29,28 +37,62 @@ class VisualTracker : public rclcpp::Node
 {
     public:
 
+    using Offboard = airdrone_actions::action::OffboardRequest;
+    using GoalHandleOffboard = rclcpp_action::ClientGoalHandle<Offboard>;
+    using Setpoint = airdrone_actions::action::Setpoint;
+    using GoalHandleSetpoint = rclcpp_action::ClientGoalHandle<Setpoint>;
+
     VisualTracker()
     : Node("visual_tracker")
     {
+      // yolo detection subscriber
       detection_sub_ = this->create_subscription<vision_msgs::msg::Detection2DArray>(
                                 "/detector_node/detections", 1, std::bind(&VisualTracker::detection_callback, this, _1));
 
+      //local position subscriber
       local_position_sub_ = this->create_subscription<px4_msgs::msg::VehicleLocalPosition>("fmu/vehicle_local_position/out", 1, 
           [this](const px4_msgs::msg::VehicleLocalPosition::UniquePtr msg){
                   vehiclePosition_.x = msg->x;
                   vehiclePosition_.y = msg->y;
                   vehiclePosition_.z = msg->z;
           });
-      // get common timestamp
+
+      // common timestamp subscriber
       timesync_sub_ =
         this->create_subscription<px4_msgs::msg::Timesync>("fmu/timesync/out", 10,
           [this](const px4_msgs::msg::Timesync::UniquePtr msg) {
             timestamp_.store(msg->timestamp);
           });
 
+      // gimbal attitude publisher
       gimbal_attitude_pub_ = this->create_publisher<px4_msgs::msg::GimbalManagerSetAttitude>("fmu/gimbal_manager_set_attitude/in", 1);
 
+      // timer -> Finite State Machine
       timer_ = this->create_wall_timer(100ms, std::bind(&VisualTracker::run, this));
+
+      // offboard and setpoint clients
+      offboard_client_ptr_ = rclcpp_action::create_client<Offboard>(this,"offboard_request");
+      setpoint_client_ptr_ = rclcpp_action::create_client<Setpoint>(this,"setpoint_request");
+
+      //Init send goal options
+      send_goal_options_offboard = rclcpp_action::Client<Offboard>::SendGoalOptions();
+      send_goal_options_setpoint = rclcpp_action::Client<Setpoint>::SendGoalOptions();
+      
+      using namespace std::placeholders;
+
+      send_goal_options_offboard.goal_response_callback =
+        std::bind(&VisualTracker::offboard_response_callback, this, _1);
+      send_goal_options_offboard.feedback_callback =
+        std::bind(&VisualTracker::offboard_feedback_callback, this, _1, _2);
+      send_goal_options_offboard.result_callback =
+        std::bind(&VisualTracker::offboard_result_callback, this, _1);
+
+      send_goal_options_setpoint.goal_response_callback =
+        std::bind(&VisualTracker::setpoint_response_callback, this, _1);
+      send_goal_options_setpoint.feedback_callback =
+        std::bind(&VisualTracker::setpoint_feedback_callback, this, _1, _2);
+      send_goal_options_setpoint.result_callback =
+        std::bind(&VisualTracker::setpoint_result_callback, this, _1);
 
       //Gimbal manager info
       gimbalAttitude_.target_system = 0;
@@ -68,6 +110,9 @@ class VisualTracker : public rclcpp::Node
     rclcpp::Subscription<px4_msgs::msg::Timesync>::SharedPtr timesync_sub_;
     rclcpp::Publisher<px4_msgs::msg::GimbalManagerSetAttitude>::SharedPtr gimbal_attitude_pub_;
     rclcpp::TimerBase::SharedPtr timer_;
+    rclcpp_action::Client<Offboard>::SharedPtr offboard_client_ptr_;
+    rclcpp_action::Client<Setpoint>::SharedPtr setpoint_client_ptr_;
+
 
     trackerState_t trackerState_{TRACKING};
 
@@ -94,6 +139,8 @@ class VisualTracker : public rclcpp::Node
     //*** TARGET TRACKING PARAMS ***//
     px4_msgs::msg::VehicleLocalPosition vehiclePosition_;
     px4_msgs::msg::VehicleLocalPosition targetPosition_;
+    px4_msgs::msg::VehicleLocalPosition last_targetPosition_;
+    int has_moved();
 
     void run_state_search();
     void run_state_tracking();
@@ -104,6 +151,18 @@ class VisualTracker : public rclcpp::Node
     void compute_target_position(px4_msgs::msg::VehicleLocalPosition& vehicle_position, 
                                   px4_msgs::msg::VehicleLocalPosition& target_position);
 
+    //*** OFFBOARD CLIENT ***//
+    rclcpp_action::Client<Offboard>::SendGoalOptions send_goal_options_offboard;
+    rclcpp_action::Client<Setpoint>::SendGoalOptions send_goal_options_setpoint;
+    void offboard_response_callback(std::shared_future<GoalHandleOffboard::SharedPtr> future);
+    void offboard_feedback_callback(GoalHandleOffboard::SharedPtr, const std::shared_ptr<const Offboard::Feedback> feedback);
+    void offboard_result_callback(const GoalHandleOffboard::WrappedResult & result);
+    void setpoint_response_callback(std::shared_future<GoalHandleSetpoint::SharedPtr> future);
+    void setpoint_feedback_callback(GoalHandleSetpoint::SharedPtr, const std::shared_ptr<const Setpoint::Feedback> feedback);
+    void setpoint_result_callback(const GoalHandleSetpoint::WrappedResult & result);
+    bool offboard_active{false};
+    long int good_detections{0};
+    
     //Callbacks
     void detection_callback(const vision_msgs::msg::Detection2DArray::SharedPtr msg);
 

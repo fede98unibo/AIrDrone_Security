@@ -43,6 +43,7 @@ void VisualTracker::run_state_search()
     }
 
     const float omega = -M_PI/6; //[rad/s]
+
     RPY_[2] += omega * t;
     t += dt;
 
@@ -62,6 +63,17 @@ void VisualTracker::run_state_tracking()
     if(detectionList_.size() > 0)
     {
         if(first_iter==true){
+
+            // start and offboard session
+            if (!this->setpoint_client_ptr_->wait_for_action_server()) {
+                RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
+                rclcpp::shutdown();
+                return;}
+
+            auto offboard_goal = Offboard::Goal();
+
+            offboard_client_ptr_->async_send_goal(offboard_goal,send_goal_options_offboard);
+
             first_iter = false;
             last_detTime_ = detTime_;
             return;
@@ -97,20 +109,37 @@ void VisualTracker::run_state_tracking()
 
         last_detTime_ = detTime_;
 
-
-        
-
         check_controller_limits(epsX,epsY);
         
         publish_gimbal_attitude(RPY_,gimbalSpeed_);
-        
-        
 
+        if((abs(epsX) > MARGIN_ERROR) && (abs(epsY) > MARGIN_ERROR))
+            good_detections++;
+        else
+            good_detections = 0;
+            
         //*********************************** TARGET POSITION TRACKING ***********************************//
 
-        compute_target_position(vehiclePosition_,targetPosition_);
+        if(offboard_active == true)
+        {
+            compute_target_position(vehiclePosition_,targetPosition_);
 
-        std::cout << "Target Position: " << targetPosition_.x <<","<<targetPosition_.y<<"," << std::endl;
+            if(has_moved() && (good_detections>5))
+            {
+                if (!this->setpoint_client_ptr_->wait_for_action_server()) {
+                    RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
+                    rclcpp::shutdown();}
+
+                auto setpoint_goal = Setpoint::Goal();
+                setpoint_goal.x = targetPosition_.x;
+                setpoint_goal.y = targetPosition_.y;
+                setpoint_goal.z = -3.5;
+
+                RCLCPP_INFO(this->get_logger(),"Sending setpoint: (%f,%f)", setpoint_goal.x, setpoint_goal.y);
+
+                setpoint_client_ptr_->async_send_goal(setpoint_goal,send_goal_options_setpoint); 
+            } 
+        }    
 
         detectionList_.clear();
     }
@@ -124,6 +153,36 @@ void VisualTracker::run_state_tracking()
     }
 
 }
+
+//--------------------------------------- OFFBOARD SERVER CALLBACKS -------------------------------------------------//
+
+void VisualTracker::offboard_response_callback(std::shared_future<GoalHandleOffboard::SharedPtr> future){
+    //TODO: handle the rejected request
+}
+
+void VisualTracker::offboard_feedback_callback(GoalHandleOffboard::SharedPtr, const std::shared_ptr<const Offboard::Feedback> feedback){
+   
+    if(feedback->offboard_status == "Offboard Active")
+        offboard_active = true;
+    else 
+        offboard_active = false;  
+}
+
+void VisualTracker::offboard_result_callback(const GoalHandleOffboard::WrappedResult & result){
+    //TODO: check if the offboard session has terminated succesfully
+}
+
+void VisualTracker::setpoint_response_callback(std::shared_future<GoalHandleSetpoint::SharedPtr> future){
+    //TODO: handle rejected request
+}
+void VisualTracker::setpoint_feedback_callback(GoalHandleSetpoint::SharedPtr, const std::shared_ptr<const Setpoint::Feedback> feedback){
+    //TODO: check distance to goal
+}
+void VisualTracker::setpoint_result_callback(const GoalHandleSetpoint::WrappedResult & result){
+    //TODO: check if setpoint has been reached
+}
+
+//-------------------------------------------------------------------------------------------------------------------//
 
 void VisualTracker::publish_gimbal_attitude(std::array<double,3> rpy, std::array<double,3> gimbal_speed)
 {
@@ -180,6 +239,18 @@ void VisualTracker::compute_target_position(px4_msgs::msg::VehicleLocalPosition&
     target_position.y = vehicle_position.y + dy;
     target_position.z = 0.0;
 
+}
+
+int VisualTracker::has_moved()
+{
+    double target_displacement = sqrt(pow(last_targetPosition_.x-targetPosition_.x,2)+pow(last_targetPosition_.y-targetPosition_.y,2));
+    
+    const double DISTMAX = 3.0;
+
+    if(target_displacement  > DISTMAX)
+        return 1;
+    else
+        return 0;
 }
 
 int main(int argc, char** argv)
