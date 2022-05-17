@@ -17,6 +17,12 @@ CAMBIAMENTI FATTI A TARGET DETECTOR
 
 -aggiunte funzioni per calcolare i punti dalla bbox e per la visualizzazione
 
+-messe le kalman variables come private
+-aggiunta variabile bool alla funzione di visualizzazione per distinguere tra i plot dei raw points e gli altri
+-aggiunta funzione display_box per debug (da cancellare a problema risolto)
+
+-forse risolto problema visualizzazione, verificare e nel caso sistemare anche compute_pose, aggiungere il calcolo dell'angolo
+
 
 --------------- TO DO ---------------
 
@@ -25,9 +31,13 @@ quadcopter_pose è calcolato solo se ci sono tetected_points, si dovrebbe calcol
 MODIFICARE LA FUNZIONE compute_bbox_info PER CALCOLARE ANCHE L'ANGOLO, altrimenti la box ha angolo sempre 0 e l'algoritmo non è robusto alle rotazioni della piattaforma
 IL SURF sembra non essere invariante alla rotazione! è perchè non calcoliamo l'angolo della bounding box?
 
-RISOLVERE PROBLEMA DI VISUALIZZAZIONE BOX
 
--una volta risolto il ptroblema della visualizzazione della box si possono estrarre i punti filtrati tramite l'apposita funzione e passare quelli alla funzione compute_pose
+
+
+RISOLVERE PROBLEMA DI VISUALIZZAZIONE BOX --> cercare il problema nella funzione compute_bbox_info
+
+-una volta risolto il problema della visualizzazione della box si possono estrarre i punti filtrati tramite l'apposita funzione e passare quelli alla funzione compute_pose
 -calcoare l'angolo della bbox dati i punti
 provare a printare la differenza tra le size della box filtrata e quelle derivate dai punti grezzi
 
+IMPLEMENTARE UNA RUNNING MEAN PER CALCOLARE IL TEMPO, se il tempo di esecuzione è > 33 ms ci stiamo perdendo dei frame

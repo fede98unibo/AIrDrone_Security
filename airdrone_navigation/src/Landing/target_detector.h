@@ -83,7 +83,8 @@ class TargetDetector : public rclcpp::Node
         std::vector<float> compute_pose(std::vector<Point2f> target_points);
         vision_msgs::msg::BoundingBox2D compute_bbox_info(std::vector<Point2f> detected_points);
         std::vector<Point2f> points_from_bbox(vision_msgs::msg::BoundingBox2D box); // compute vector of 4 vertexes points from a bounding box
-        void display_points_lines(std::vector<Point2f> points, int R, int G, int B); // draw points and lines connecting them given a vector of points and RGB color
+        void display_points_lines(std::vector<Point2f> points, bool center_required, int R, int G, int B); // draw points and lines connecting them given a vector of points and RGB color
+        void display_box(vision_msgs::msg::BoundingBox2D box, int R, int G, int B);
 
         //*** Callbacks ***//
 

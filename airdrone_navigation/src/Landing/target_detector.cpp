@@ -32,7 +32,7 @@ TargetDetector::TargetDetector() : Node("target_detector")
     }
 
     landing_points_ = { Point2f(target_dim_,-target_dim_), Point2f(target_dim_,target_dim_), Point2f(-target_dim_,target_dim_), Point2f(-target_dim_,-target_dim_) };
-    
+   
     detector_ = SURF::create( minHessian_ );
     matcher_ = DescriptorMatcher::create(DescriptorMatcher::FLANNBASED);
 
@@ -93,6 +93,7 @@ void TargetDetector::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr
         cv_ptr = cv_bridge::toCvCopy(msg, msg->encoding);
 
 		std::vector<Point2f> detected_points = find_target_points(cv_ptr->image); // detect points
+        // std::cout << "Detected " << detected_points.size() << " points." << std::endl; // 4 points
         
         //kalman->predict(detection_box); // KALMAN
         //kalman.predict(detection_box);
@@ -114,7 +115,8 @@ void TargetDetector::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr
 
                 // VISUALIZATION of Predicted points
                 std::vector<Point2f> predicted_points = points_from_bbox(predicted_box);
-                display_points_lines(predicted_points,255,255,0);
+                display_points_lines(predicted_points,true,255,255,0);
+                //display_box(predicted_box,50,50,200);
             }
 
             // print an error after 50 frames without detection
@@ -165,11 +167,12 @@ void TargetDetector::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr
             // DRAWINGS
 
             // Raw points
-            display_points_lines(detected_points,255,0,0);
+            display_points_lines(detected_points,false,255,0,0);
 
             // VISUALIZATION of Corrected (filtered) points
             std::vector<Point2f> filtered_points = points_from_bbox(detection_box);
-            display_points_lines(filtered_points,0,255,0);
+            display_points_lines(filtered_points,true,0,255,0);
+            
 
             //std::cout << filtered_points[0] << std::endl;
             //std::cout << filtered_points[1] << std::endl;
@@ -181,7 +184,6 @@ void TargetDetector::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr
             detection_pub_->publish(detection_box); // filtered box
 
 		}
-        // insert visualization here
 	}
 	 
 	catch (cv_bridge::Exception& e)
@@ -202,7 +204,7 @@ void TargetDetector::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr
 std::vector<Point2f> TargetDetector::find_target_points(Mat& img)
 {  
     // Exception may occur in this process... if something goes wrong we simply return an empty vector
-    try{
+    try {
 
         detector_->detectAndCompute( img, noArray(), keypoints_scene_, descriptors_scene_ );
 
@@ -287,7 +289,7 @@ std::vector<float> TargetDetector::compute_pose(std::vector<Point2f> target_poin
 }
 
 // -------------------------------------- COMPUTE BBOX --------------------------------------
-
+/*
 vision_msgs::msg::BoundingBox2D TargetDetector::compute_bbox_info(std::vector<Point2f> detected_points)
 {
     auto box = vision_msgs::msg::BoundingBox2D();
@@ -323,6 +325,40 @@ vision_msgs::msg::BoundingBox2D TargetDetector::compute_bbox_info(std::vector<Po
 
     return box;
 }
+*/
+vision_msgs::msg::BoundingBox2D TargetDetector::compute_bbox_info(std::vector<Point2f> detected_points) {
+
+    auto box = vision_msgs::msg::BoundingBox2D();
+    float distance_from_origin[4];
+    float min_dist = 1e+10; // high nuber: for sure distance will be smaller
+    int min_dist_idx;
+    int i = 0;
+    box.center.x = 0;
+    box.center.y = 0;
+
+    for (auto pt : detected_points) {
+        box.center.x += pt.x;
+        box.center.y += pt.y;
+
+        distance_from_origin[i] = sqrt(pt.x*pt.x + pt.y*pt.y); // L2 norm of points
+        if(distance_from_origin[i] < min_dist) { // search minimum distance
+            min_dist = distance_from_origin[i]; 
+            min_dist_idx = i;
+            }
+        i++;
+    }
+
+    std::cout << "min dist: " << min_dist << " index " << min_dist_idx << std::endl;
+    box.center.x = box.center.x/4;
+    box.center.y = box.center.y/4;
+    float temp1 = detected_points[min_dist_idx].x - detected_points[(min_dist_idx+1)%4].x;
+    float temp2 = detected_points[min_dist_idx].y - detected_points[(min_dist_idx+1)%4].y;
+    box.size_x = sqrt(temp1*temp1 + temp2*temp2);
+    box.size_y = box.size_x; // beacuse it's a square
+    // box.center.theta = 
+    return box;
+}
+
 
 std::vector<Point2f> TargetDetector::points_from_bbox(vision_msgs::msg::BoundingBox2D box) {
     std::vector<Point2f> predicted_points(5); // 4 corners and the center
@@ -340,23 +376,40 @@ std::vector<Point2f> TargetDetector::points_from_bbox(vision_msgs::msg::Bounding
     return predicted_points;
 }
 
-void TargetDetector::display_points_lines(std::vector<Point2f> points, int R, int G, int B) {
+void TargetDetector::display_points_lines(std::vector<Point2f> points, bool center_required, int R, int G, int B) {
     const int radius = 5; // radius of circle
     // draw line between points
+    /*
     line( cv_ptr -> image, points[0], points[1], Scalar(B, G, R), 3 );
     line( cv_ptr -> image, points[1], points[2], Scalar(B, G, R), 3 );
     line( cv_ptr -> image, points[2], points[3], Scalar(B, G, R), 3 );
     line( cv_ptr -> image, points[3], points[0], Scalar(B, G, R), 3 );
+    */
+    rectangle(cv_ptr -> image, points[0], points[2], Scalar(B, G, R), 3);
+    
     // draw points
     circle(cv_ptr -> image, points[0], radius, Scalar(B, G, R), 4 );
     circle(cv_ptr -> image, points[1], radius, Scalar(B, G, R), 4 );
     circle(cv_ptr -> image, points[2], radius, Scalar(B, G, R), 4 );
     circle(cv_ptr -> image, points[3], radius, Scalar(B, G, R), 4 );
-    if (points[4].x != 0 && points[4].y != 0) // check if exist a fifth element (it is not the case if we are displaying raw points)
+    if (center_required) // plot also the center (center does not exist if we are diplaying raw points)
         circle(cv_ptr -> image, points[4], radius, Scalar(B, G, R), -1 ); // center
 
 }
 
+void TargetDetector::display_box(vision_msgs::msg::BoundingBox2D box, int R, int G, int B) {
+
+    const int radius = 5;
+    Point2f center = Point2f(box.center.x, box.center.y);
+    Point2f center2 = Point2f(box.center.x + box.size_x, box.center.y + box.size_y);
+    // float theta = ...
+    float size_x = box.size_x; 
+    float size_y = box.size_y; 
+    std::cout << "Box: center: " << box.center.x << "," << box.center.y << " Size_x: " << size_x << " Size_y: " << size_y << std::endl;
+    circle(cv_ptr -> image, center, radius, Scalar(B, G, R), -1 ); // center
+    line( cv_ptr -> image, center, center2, Scalar(B, G, R), 3 );
+
+}
 
 // -------------------------------------- MAIN --------------------------------------
 

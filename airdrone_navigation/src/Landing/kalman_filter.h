@@ -41,33 +41,33 @@ class KalmanFilter
             std::cout << "All Kalman Filter variables initialized." << std::endl;        
         }
 
-            // Class public variables
-            Matrix<float,10,10> IDENTITY10;
-            Matrix<float,5,5> IDENTITY5;
-            Matrix<float,10,10> ZERO10;
-            Matrix<float,5,5> ZERO5;
-
-            Matrix<float,10,10> Q; // covariance matrix of the predicton error
-            Matrix<float,10,10> A; // state transition matrix
-            Matrix<float,5,10> H; // relationship btw states and observations
-            Matrix<float,5,5> R; // uncertainty of the observations
-
-            Matrix<float,5,1>  Z; // observable states
-            Matrix<float,10,1>  X; // corrected states (observable and non-observable states)
-            Matrix<float,10,1>  X_hat; // predicted states
-            Matrix<float,5,1>  Y;
-            Matrix<float,5,1>  Y_hat; // innovation
-            Matrix<float,10,10> P; // correction of the state covariance matrix
-            Matrix<float,10,10> P_hat; // state covariance matrix
-            Matrix<float,10,5> K; // Kalman gain
-
-
-
         vision_msgs::msg::BoundingBox2D predict(vision_msgs::msg::BoundingBox2D bounding_box);
         vision_msgs::msg::BoundingBox2D correct();
         void reset(); 
 
-    // no private
+
+    private:
+
+        // Class public variables
+        Matrix<float,10,10> IDENTITY10;
+        Matrix<float,5,5> IDENTITY5;
+        Matrix<float,10,10> ZERO10;
+        Matrix<float,5,5> ZERO5;
+
+        Matrix<float,10,10> Q; // covariance matrix of the predicton error
+        Matrix<float,10,10> A; // state transition matrix
+        Matrix<float,5,10> H; // relationship btw states and observations
+        Matrix<float,5,5> R; // uncertainty of the observations
+
+        Matrix<float,5,1>  Z; // observable states
+        Matrix<float,10,1>  X; // corrected states (observable and non-observable states)
+        Matrix<float,10,1>  X_hat; // predicted states
+        Matrix<float,5,1>  Y;
+        Matrix<float,5,1>  Y_hat; // innovation
+        Matrix<float,10,10> P; // correction of the state covariance matrix
+        Matrix<float,10,10> P_hat; // state covariance matrix
+        Matrix<float,10,5> K; // Kalman gain
+
 };
 
 // PREDICTION
