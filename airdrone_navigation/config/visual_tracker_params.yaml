@@ -1,0 +1,18 @@
+/visual_tracker:
+  ros__parameters:
+  
+      # Gimbal 
+      K_p_gimbal: 0.05
+      K_i_gimbal: 0.2
+      Gimbal_error: 0.05
+
+      # Tracking
+      K_p_tracking: 0.01
+      K_i_tracking: 0.1
+      Target_detection_box_size: 70.0
+      Tracking_error: 5.0
+      Target_lost_TimeOut: 3500
+
+
+
+
