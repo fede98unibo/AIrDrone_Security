@@ -1,14 +1,85 @@
 #include "visual_tracking_system.hpp"
 
-void VisualTracker::detection_callback(const vision_msgs::msg::Detection2DArray::SharedPtr msg)
+VisualTracker::VisualTracker()
+: Node("visual_tracker")
 {
-    for(auto det : msg -> detections)
-    {
-        detectionList_.emplace_back(det);
-        RCLCPP_INFO(this->get_logger(),"Detection ID: %s", det.tracking_id.c_str());
+    // Parameters Initialization
+    this->declare_parameter<double>("K_p_gimbal", 0.05);
+    this->declare_parameter<double>("K_i_gimbal", 0.2);
+    this->declare_parameter<double>("K_p_tracking", 0.01);
+    this->declare_parameter<double>("K_i_tracking", 0.05);
+    this->declare_parameter<double>("Target_detection_box_size", 75.0);
+    this->declare_parameter<double>("Gimbal_error", 0.05);
+    this->declare_parameter<double>("Tracking_error", 5.0);
+    this->declare_parameter<int>("Target_lost_TimeOut", 3000);
+    
+    this->get_parameter("K_p_gimbal", K_p);
+    this->get_parameter("K_i_gimbal", K_i);
+    this->get_parameter("K_p_tracking", Kp_track);
+    this->get_parameter("K_i_tracking", Ki_track);
+    this->get_parameter("Target_detection_box_size", TARGET_SIZE);
+    this->get_parameter("Gimbal_error", MARGIN_ERROR);
+    this->get_parameter("Tracking_error", TRACKING_ERROR);
+    this->get_parameter("Target_lost_TimeOut", TIMEOUT);
 
-        detTime_ = std::chrono::high_resolution_clock::now();
-    }
+    // Yolo detection subscriber
+    detection_sub_ = this->create_subscription<vision_msgs::msg::Detection2DArray>(
+                            "/detector_node/detections", 1, std::bind(&VisualTracker::detection_callback, this, _1));
+
+    //local position subscriber
+    local_position_sub_ = this->create_subscription<px4_msgs::msg::VehicleLocalPosition>("fmu/vehicle_local_position/out", 1, 
+        [this](const px4_msgs::msg::VehicleLocalPosition::UniquePtr msg){
+        });
+
+    // common timestamp subscriber
+    timesync_sub_ =
+    this->create_subscription<px4_msgs::msg::Timesync>("fmu/timesync/out", 10,
+        [this](const px4_msgs::msg::Timesync::UniquePtr msg) {
+        timestamp_.store(msg->timestamp);
+        });
+
+    // gimbal attitude publisher
+    gimbal_attitude_pub_ = this->create_publisher<px4_msgs::msg::GimbalManagerSetAttitude>("fmu/gimbal_manager_set_attitude/in", 1);
+
+    trajectory_pub_ = this->create_publisher<px4_msgs::msg::TrajectorySetpoint>("visual_tracker_trajectory",1);
+
+    // timer -> Finite State Machine
+    timer_ = this->create_wall_timer(100ms, std::bind(&VisualTracker::run, this));
+
+    // offboard and setpoint clients
+    offboard_client_ptr_ = rclcpp_action::create_client<Offboard>(this,"offboard_request");
+    setpoint_client_ptr_ = rclcpp_action::create_client<Setpoint>(this,"setpoint_request");
+
+    //Init send goal options
+    send_goal_options_offboard = rclcpp_action::Client<Offboard>::SendGoalOptions();
+    send_goal_options_setpoint = rclcpp_action::Client<Setpoint>::SendGoalOptions();
+    
+    using namespace std::placeholders;
+
+    send_goal_options_offboard.goal_response_callback =
+    std::bind(&VisualTracker::offboard_response_callback, this, _1);
+    send_goal_options_offboard.feedback_callback =
+    std::bind(&VisualTracker::offboard_feedback_callback, this, _1, _2);
+    send_goal_options_offboard.result_callback =
+    std::bind(&VisualTracker::offboard_result_callback, this, _1);
+
+    send_goal_options_setpoint.goal_response_callback =
+    std::bind(&VisualTracker::setpoint_response_callback, this, _1);
+    send_goal_options_setpoint.feedback_callback =
+    std::bind(&VisualTracker::setpoint_feedback_callback, this, _1, _2);
+    send_goal_options_setpoint.result_callback =
+    std::bind(&VisualTracker::setpoint_result_callback, this, _1);
+
+    //Gimbal manager info
+    gimbalAttitude_.target_system = 0;
+    gimbalAttitude_.target_component = 0;
+    gimbalAttitude_.gimbal_device_id = 0;
+
+    //intrinsic camera matrix
+    // TODO: put this in the yaml
+    A << 100, 0, 320, 0, 100, 180, 0, 0, 1;
+
+    RCLCPP_INFO(this->get_logger(),"Visual Tracker intialization completed");
 }
 
 void VisualTracker::run()
@@ -36,26 +107,20 @@ void VisualTracker::run()
 
 void VisualTracker::run_state_search()
 {
+    // Search constant gimbal position
+    RPY_[1] = 0.0;
+    RPY_[2] = M_PI;
+
+    gimbalSpeed_ = {0.0,M_PI,M_PI};
+
+    publish_gimbal_attitude(RPY_,gimbalSpeed_);
+
     //go to state tracking if some obj has been detected
     if(detectionList_.size() > 0){
+        RCLCPP_WARN(this->get_logger(),"SEARCH -> TRACKING");
         trackerState_ = TRACKING;
         return;
     }
-
-    const float omega = -M_PI/6; //[rad/s]
-
-    RPY_[2] += omega * t;
-    t += dt;
-
-    if(RPY_[2] < -M_PI){
-        RPY_[2] = M_PI;
-        t = 0;
-    }
-
-    gimbalSpeed_[2] = omega;
-    gimbalSpeed_[1] = -omega;
-
-    publish_gimbal_attitude(RPY_,gimbalSpeed_);
 }
 
 void VisualTracker::run_state_tracking()
@@ -64,7 +129,7 @@ void VisualTracker::run_state_tracking()
     {
         if(first_iter==true){
 
-            // start and offboard session
+            //start and offboard session
             if (!this->setpoint_client_ptr_->wait_for_action_server()) {
                 RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
                 rclcpp::shutdown();
@@ -73,6 +138,7 @@ void VisualTracker::run_state_tracking()
             auto offboard_goal = Offboard::Goal();
 
             offboard_client_ptr_->async_send_goal(offboard_goal,send_goal_options_offboard);
+
 
             first_iter = false;
             last_detTime_ = detTime_;
@@ -88,7 +154,7 @@ void VisualTracker::run_state_tracking()
         double epsX = -std::atan2(target_position.coeff(0,0),1.0);
         double epsY = std::atan2(target_position.coeff(1,0),1.0);
         
-        gimbalSpeed_ = {0.0,0.5,0.5}; //Gimbal tracking speed -- Costant
+        gimbalSpeed_ = {0.0,M_PI,M_PI}; //Gimbal tracking speed -- Costant
 
         //***  YAW PI CONTROLLLER ***//
         if(abs(epsX) > MARGIN_ERROR){
@@ -113,48 +179,77 @@ void VisualTracker::run_state_tracking()
         
         publish_gimbal_attitude(RPY_,gimbalSpeed_);
 
-        if((abs(epsX) > MARGIN_ERROR) && (abs(epsY) > MARGIN_ERROR))
-            good_detections++;
-        else
-            good_detections = 0;
-            
-        //*********************************** TARGET POSITION TRACKING ***********************************//
-
-        if(offboard_active == true)
-        {
-            compute_target_position(vehiclePosition_,targetPosition_);
-
-            if(has_moved() && (good_detections>5))
-            {
-                if (!this->setpoint_client_ptr_->wait_for_action_server()) {
-                    RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
-                    rclcpp::shutdown();}
-
-                auto setpoint_goal = Setpoint::Goal();
-                setpoint_goal.x = targetPosition_.x;
-                setpoint_goal.y = targetPosition_.y;
-                setpoint_goal.z = -3.5;
-
-                RCLCPP_INFO(this->get_logger(),"Sending setpoint: (%f,%f)", setpoint_goal.x, setpoint_goal.y);
-
-                setpoint_client_ptr_->async_send_goal(setpoint_goal,send_goal_options_setpoint); 
-            } 
-        }    
-
         detectionList_.clear();
+
+        //*********************************** Box Dimension Tracking ***********************************//
+
+        //if((abs(epsX) < ESTIMATION_ERROR) && (abs(epsY) < ESTIMATION_ERROR)){
+        
+        // if(offboard_active == true){
+        if(true){
+
+        double actual_size = detectionList_[0].bbox.size_x;
+        double yaw = RPY_[2] + M_PI;
+
+        double speed;
+
+        if(abs(TARGET_SIZE-actual_size) > 5.0)
+            speed = Kp_track * (TARGET_SIZE - actual_size);
+        else 
+            speed = 0;
+        
+        commanded_speed.x = speed * sin(yaw);
+        commanded_speed.y = speed * cos(yaw);
+        
+        RCLCPP_INFO(this->get_logger(),"Target size: %f, actual size: %f, yaw: %f", TARGET_SIZE, actual_size, yaw);
+        RCLCPP_INFO(this->get_logger(),"Commanded_speed: (%f,%f)", commanded_speed.x, commanded_speed.y);
+
+        px4_msgs::msg::TrajectorySetpoint setpoint;
+        setpoint.vx = commanded_speed.x;
+        setpoint.vy  = commanded_speed.y;
+        setpoint.vz = 0.0;
+
+        trajectory_pub_->publish(setpoint);
+        
+        }
+        //***  SPEED PI CONTROLLLER ***//
+
+        //}
     }
 
     else
     {
         //If target is lost switch to stabilized mode
-        // targetLostTime_ = rclcpp::Time());
-        // trackerState_ = STABILIZE;
+        auto currentTime_ = std::chrono::high_resolution_clock::now();
+
+        long int deltaT = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime_-last_detTime_).count();
+
+        //RCLCPP_INFO(this->get_logger(),"Target lost, ms from last seen: %ld", deltaT);
+
+        if(deltaT > TIMEOUT){            
+            RCLCPP_WARN(this->get_logger(),"Target Lost Timeout...");
+            trackerState_ = SEARCH;
+            first_iter = true;
+            RCLCPP_WARN(this->get_logger(),"TRACKING -> SEARCH");
+        }
+        
         return;
     }
 
 }
 
 //--------------------------------------- OFFBOARD SERVER CALLBACKS -------------------------------------------------//
+
+void VisualTracker::detection_callback(const vision_msgs::msg::Detection2DArray::SharedPtr msg)
+{
+    for(auto det : msg -> detections)
+    {
+        detectionList_.emplace_back(det);
+        //RCLCPP_INFO(this->get_logger(),"Detection ID: %s", det.tracking_id.c_str());
+
+        detTime_ = std::chrono::high_resolution_clock::now();
+    }
+}
 
 void VisualTracker::offboard_response_callback(std::shared_future<GoalHandleOffboard::SharedPtr> future){
     //TODO: handle the rejected request
@@ -221,37 +316,36 @@ void VisualTracker::check_controller_limits(double azimuth_error, double elevati
         RPY_[2] = RPY_[2] +2*M_PI;
 }
 
-void VisualTracker::compute_target_position(px4_msgs::msg::VehicleLocalPosition& vehicle_position, px4_msgs::msg::VehicleLocalPosition& target_position)
-{
-    double altitude = -vehicle_position.z;
+// void VisualTracker::compute_target_position(px4_msgs::msg::VehicleLocalPosition& vehicle_position, px4_msgs::msg::VehicleLocalPosition& target_position)
+// {
+//     double altitude = -vehicle_position.z;
 
-    double alpha = M_PI_2 - (M_PI_2 - RPY_[1]);
+//     double alpha = M_PI_2 - (M_PI_2 - RPY_[1]);
 
-    double distance = altitude/tan(alpha);
+//     double distance = altitude/tan(alpha);
 
-    double dx,dy;
+//     double dx,dy;
 
-    dx = distance * sin(RPY_[2] + M_PI);
-    dy = distance * cos(RPY_[2] + M_PI);
+//     dx = distance * sin(RPY_[2] + M_PI);
+//     dy = distance * cos(RPY_[2] + M_PI);
 
-    //Target Position in Local NED Reference Frame
-    target_position.x = vehicle_position.x + dx;
-    target_position.y = vehicle_position.y + dy;
-    target_position.z = 0.0;
+//     //Target Position in Local NED Reference Frame
+//     target_position.x = vehicle_position.x + dx;
+//     target_position.y = vehicle_position.y + dy;
+//     target_position.z = 0.0;
+// }
 
-}
-
-int VisualTracker::has_moved()
-{
-    double target_displacement = sqrt(pow(last_targetPosition_.x-targetPosition_.x,2)+pow(last_targetPosition_.y-targetPosition_.y,2));
+// int VisualTracker::has_moved()
+// {
+//     double target_displacement = sqrt(pow(last_targetPosition_.x-targetPosition_.x,2)+pow(last_targetPosition_.y-targetPosition_.y,2));
     
-    const double DISTMAX = 3.0;
+//     const double DISTMAX = 3.0;
 
-    if(target_displacement  > DISTMAX)
-        return 1;
-    else
-        return 0;
-}
+//     if(target_displacement  > DISTMAX)
+//         return 1;
+//     else
+//         return 0;
+// }
 
 int main(int argc, char** argv)
 {
@@ -260,4 +354,5 @@ int main(int argc, char** argv)
     rclcpp::shutdown();
     return 0;
 }
+
 
