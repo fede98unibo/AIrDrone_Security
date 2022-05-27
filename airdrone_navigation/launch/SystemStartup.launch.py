@@ -17,7 +17,7 @@ def generate_launch_description():
 
     fpv_racing_gazebo_dir = get_package_share_directory('airdrone_navigation')
     world = os.path.join(fpv_racing_gazebo_dir, 'worlds', 'ADS_worlds', 'empty.world')
-    model = os.path.join(fpv_racing_gazebo_dir, 'models', 'ADS_models/iris_fpv_cam', 'iris_fpv_cam.sdf')
+    model = os.path.join(fpv_racing_gazebo_dir, 'models', 'ADS_models/typhoon_h480_ctrlalloc', 'typhoon_h480_ctrlalloc.sdf')
     #custom_gazebo_models = os.path.join(blackdrones_description_dir, 'models')
     #px4_init = os.path.join(blackdrones_description_dir, 'PX4-init')
 
@@ -32,9 +32,9 @@ def generate_launch_description():
 
         DeclareLaunchArgument('world', default_value=world),
         DeclareLaunchArgument('model', default_value=model),
-        DeclareLaunchArgument('x', default_value='0.0'),
-        DeclareLaunchArgument('y', default_value='0.0'),
-        DeclareLaunchArgument('z', default_value='0.1'),
+        DeclareLaunchArgument('x', default_value='1.0'),
+        DeclareLaunchArgument('y', default_value='1.0'),
+        DeclareLaunchArgument('z', default_value='0.0'),
         DeclareLaunchArgument('R', default_value='0.0'),
         DeclareLaunchArgument('P', default_value='0.0'),
         DeclareLaunchArgument('Y', default_value='0.0'),
