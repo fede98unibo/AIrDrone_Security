@@ -1,9 +1,0 @@
-target_detector:
-  ros__parameters:
-    simulation: true
-    image_path: "/home/fede/px4_ros_com_ros2/src/airdrone_navigation/src/Landing/reference_images/ReferenceImage.png"
-    target_dimension: 30.0 #[cm]
-    min_hessian: 400
-    ratio_thresh: 0.55
-    min_good_match: 5
-
