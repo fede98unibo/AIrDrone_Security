@@ -1,6 +1,5 @@
 import os
 import warnings
-import time
 from typing import List, Tuple
 
 # comment out below line to enable tensorflow outputs
@@ -47,11 +46,9 @@ class Yolo:
 
         batch_data = tf.constant(image_data)
 
-        s = time.time()
         pred_bbox = self._infer(batch_data)
-        print(time.time() - s)
 
-        for key, value in pred_bbox.items():
+        for _, value in pred_bbox.items():
             results = value
         return results
 

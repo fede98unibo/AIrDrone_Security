@@ -17,6 +17,8 @@ from geometry_msgs.msg import Pose2D
 from yolo_ros.yolo import Yolo
 import cv2
 
+from yolo_ros.following import Follower
+
 QUEUE_LEN = 1
 
 
@@ -38,6 +40,7 @@ class YoloNode(Node):
         )
 
         self.bridge = CvBridge()
+        self.follower = Follower(300, 5)
 
         self.network = network
 
@@ -88,13 +91,15 @@ class YoloNode(Node):
             ]
         )
 
+        detections = self.follower.follow(detections)
+
         self.publisher.publish(detections)
 
 
 def main(args=None):
     rclpy.init(args=args)
 
-    tiny = False
+    tiny = True
     input_size = 416
     confidence_threshold = 0.4
     nms_threshold = 0.4
