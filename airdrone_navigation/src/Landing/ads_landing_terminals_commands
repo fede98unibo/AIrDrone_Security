@@ -1,0 +1,32 @@
+To compile the node:
+source /opt/ros/foxy/setup.bash
+cd px4_ros_com_ros2/
+colcon build --packages-select airdrone_navigation
+
+
+Terminal 1:
+source /opt/ros/foxy/setup.bash
+cd PX4-Autopilot/
+make px4_sitl_rtps gazebo no_sim=1
+
+to trigger precision landing, on terminal 1:
+commander mode auto:precland
+
+[open QGroundControl]
+
+
+Terminal 2:
+source /opt/ros/foxy/setup.bash
+cd px4_ros_com_ros2/
+source install/setup.bash
+ros2 launch airdrone_navigation SystemStartup.launch.py
+
+
+[manually takeoff from QGroundControl]
+
+
+Terminal 3:
+source /opt/ros/foxy/setup.bash
+cd px4_ros_com_ros2/
+source install/setup.bash
+ros2 run airdrone_navigation SurfDetector
