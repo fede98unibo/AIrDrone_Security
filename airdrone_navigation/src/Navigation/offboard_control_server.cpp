@@ -35,7 +35,7 @@ void OffboardServer::execute_offboard(const std::shared_ptr<GoalHandleOffboard> 
 {
     RCLCPP_INFO(this->get_logger(), "Starting Offboard Session");
     
-    int rate = 20;
+    int rate = 10;
     rclcpp::Rate loop_rate(rate);
 
     const auto goal = goal_handle->get_goal();
@@ -45,15 +45,31 @@ void OffboardServer::execute_offboard(const std::shared_ptr<GoalHandleOffboard> 
     auto result = std::make_shared<Offboard::Result>();
 
     //Initilize Trajectory: keep the current position -> HOVERING
-    trajectory.x = currentPosition.x;
-    trajectory.y = currentPosition.y;
-    trajectory.z = currentPosition.z;
-    trajectory.yaw = 1.57;
+    // trajectory.x = currentPosition.x;
+    // trajectory.y = currentPosition.y;
+    // trajectory.z = currentPosition.z;
+    // trajectory.yaw = 1.57;
+    trajectory.x = NAN;             //Only velocty control.... this is a SHIT !
+    trajectory.y = NAN;
+    trajectory.z = NAN;
+    trajectory.yaw = NAN;
+    trajectory.vx = 0.0;
+    trajectory.vy = 0.0;
+    trajectory.vz = 0.0;
+    trajectory.yawspeed = 0.0;
 
     long int loop_counter = 0; //TODO: Pay attention to overflow....
 
     while(rclcpp::ok()) 
     {
+        // Check if some speed trajectory is still being published
+        auto currentTime_ = std::chrono::high_resolution_clock::now();
+        long int deltaT = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime_-lastTrajectoryUpdate_).count();
+
+        if(deltaT > TIMEOUT){
+            speedcontrolActive = false;
+        }
+
         //check if cancel request has been issued
         if (goal_handle->is_canceling()) 
         {
@@ -76,8 +92,9 @@ void OffboardServer::execute_offboard(const std::shared_ptr<GoalHandleOffboard> 
 
             return;
         }
-    
-        loop_counter++; 
+
+        if(loop_counter < 30)
+            loop_counter++; 
 
         //publish feedback based and current serverState
         if(serverState == OffState){ 
@@ -106,7 +123,7 @@ void OffboardServer::execute_offboard(const std::shared_ptr<GoalHandleOffboard> 
         publish_offboard_control_mode();
         publish_trajectory_setpoint();
         
-        //RCLCPP_INFO(this->get_logger(), "Current trajectory: %f, %f, %f", trajectory.x, trajectory.y, trajectory.z);
+        RCLCPP_INFO(this->get_logger(), "Current trajectory: %f, %f, %f", trajectory.x, trajectory.y, trajectory.z);
 
         loop_rate.sleep();
     }
@@ -137,15 +154,17 @@ rclcpp_action::GoalResponse OffboardServer::handle_setpoint_request_goal(const r
 
     RCLCPP_INFO(this->get_logger(),"Received request of Setpoint");
 
+    //TODO: check if the setpoint is valid before accepting it
+    if(speedcontrolActive == true){
+        return rclcpp_action::GoalResponse::REJECT;
+    }
     //if the serverState is IDLE we can accept a new setpoint, TODO: handle setpoint queue
-    if(serverState == IdleState)
-    {
+    else if(serverState == IdleState){
         //switch to busyState
         serverState = BusyState;
         return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
     }
-    else if(serverState == BusyState)
-    {
+    else if(serverState == BusyState){
         //switch to new setpoint
         new_setpnt_received = true;
         return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
@@ -166,10 +185,12 @@ void OffboardServer::handle_setpoint_request_accepted(const std::shared_ptr<Goal
     using namespace std::placeholders;
 
     if((new_setpnt_received == true) && (serverState == BusyState)){
+
         auto goal = goal_handle1->get_goal();
         currentSetpoint.x = goal->x;
         currentSetpoint.y = goal->y;
         currentSetpoint.z = goal->z;
+
     }  
     else{
         std::thread{std::bind(&OffboardServer::execute_setpoint_request, this, _1), goal_handle1}.detach();
@@ -190,84 +211,85 @@ void OffboardServer::execute_setpoint_request(const std::shared_ptr<GoalHandleSe
     auto result = std::make_shared<Setpoint::Result>();
     auto feed = std::make_shared<Setpoint::Feedback>();
 
-    float dt = 1/float(rate);
-    float tt = 0;
+    double dt = 1/double(rate);
+    long double tt = 0;
 
-    float distance2goal = 0;
+    geometry_msgs::msg::Point distance2goal;
 
     geometry_msgs::msg::Point destination;
-    destination.x = goal->x - currentPosition.x;
-    destination.y = goal->y - currentPosition.y;
-    destination.z = goal->z - currentPosition.z;
+    destination.x = goal->x;
+    destination.y = goal->y;
+    destination.z = goal->z;
+
+    RCLCPP_WARN(this->get_logger(),"Destination: (%f,%f,%f) ", destination.x,destination.y,destination.z);
 
     //Compute 3D-trajectory to reach the Goal
-    const float t_max = 10; //[s]
-    vector<vector<float>> cubic_poly = generate_polynomial(destination, t_max);
-    
-    //Save initial position of vehicle before start sending the trajectory
-    geometry_msgs::msg::Point initialPosition;
-    initialPosition.x = currentPosition.x;
-    initialPosition.y = currentPosition.y; 
-    initialPosition.z = currentPosition.z;
+    array<array<double,4>,3> cubic_poly;
+
+    TJ.cubic_poly_xyz(currentPosition,currentSpeed,destination,cubic_poly);
+
+    const double WAYPOINT_PRECISION = 0.2;
 
     while(rclcpp::ok())
     {
         //check if cancel request has been issued
         if (goal_handle1->is_canceling()) 
         {
+            result->reached = false;
             goal_handle1->canceled(result);
 
-            //Switch back to idle state
+            // Switch back to idle state
             serverState = IdleState;
 
             return;
         }
 
-        //check if a new setpoint has been received
+        // Check if a new setpoint has been received
         if(new_setpnt_received == true){
 
-            new_setpnt_received = false;
+            new_setpnt_received = false; // Attento che se arriva un ulteriore setpoint uno dei due potrebbe essere sfanculato
 
-            destination.x = currentSetpoint.x - currentPosition.x;
-            destination.y = currentSetpoint.y - currentPosition.y;
-            destination.z = currentSetpoint.z -currentPosition.z;
-            cubic_poly = generate_polynomial(destination,t_max);
+            destination.x = currentSetpoint.x;
+            destination.y = currentSetpoint.y;
+            destination.z = currentSetpoint.z;
 
-            initialPosition.x = trajectory.x;
-            initialPosition.y = trajectory.y;
-            initialPosition.z = trajectory.z;
+            geometry_msgs::msg::Point source;
+            source.x = trajectory.x;
+            source.y = trajectory.y;
+            source.z = trajectory.z;
+
+            TJ.cubic_poly_xyz(source,currentSpeed,destination,cubic_poly);
 
             tt = 0;            
         }
 
         //Compute distance from Goal
-        distance2goal = sqrt(pow((destination.x+initialPosition.x)-currentPosition.x,2)+
-                             pow((destination.y+initialPosition.y)-currentPosition.y,2)+
-                             pow(abs(destination.z+initialPosition.z)-abs(currentPosition.z),2));
+        distance2goal.x = abs(destination.x-currentPosition.x);
+        distance2goal.y = abs(destination.y-currentPosition.y);
+        distance2goal.z = abs(destination.z-currentPosition.z);
+
+        float Distance3D = sqrt(pow(distance2goal.x,2) + pow(distance2goal.y,2) + pow(distance2goal.z,2));
 
         // RCLCPP_INFO(this->get_logger(),"distance to goal: %f", distance2goal);
         
         //Publish feedback
-        feed -> distance = distance2goal;
+        feed -> distance = Distance3D;
         goal_handle1->publish_feedback(feed);
 
-        if(tt < t_max)
-        {
-            //Update trajectory based on current polynomial
-            trajectory.x = -(cubic_poly[0][0]+cubic_poly[0][1]*tt+cubic_poly[0][2]*pow(tt,2)+cubic_poly[0][3]*pow(tt,3)) + initialPosition.x;
-            trajectory.y = -(cubic_poly[1][0]+cubic_poly[1][1]*tt+cubic_poly[1][2]*pow(tt,2)+cubic_poly[1][3]*pow(tt,3)) + initialPosition.y;
-            trajectory.z = -(cubic_poly[2][0]+cubic_poly[2][1]*tt+cubic_poly[2][2]*pow(tt,2)+cubic_poly[2][3]*pow(tt,3)) + initialPosition.z;
+        if(distance2goal.x > WAYPOINT_PRECISION){
+            trajectory.x = (cubic_poly[0][0]+cubic_poly[0][1]*tt+cubic_poly[0][2]*pow(tt,2)+cubic_poly[0][3]*pow(tt,3));
+        }
+        if(distance2goal.y > WAYPOINT_PRECISION){
+            trajectory.y = (cubic_poly[1][0]+cubic_poly[1][1]*tt+cubic_poly[1][2]*pow(tt,2)+cubic_poly[1][3]*pow(tt,3));
+        }
+        if(distance2goal.z > WAYPOINT_PRECISION){
+            trajectory.z = (cubic_poly[2][0]+cubic_poly[2][1]*tt+cubic_poly[2][2]*pow(tt,2)+cubic_poly[2][3]*pow(tt,3));
+        }
 
-            //increment time until t_max
-            tt += dt;
-        }
-        else 
-        {
-            tt = t_max;
-        }
+        tt += dt;
 
         //Check if we reached the goal
-        if(distance2goal < 0.2)
+        if(Distance3D < WAYPOINT_PRECISION)
         {
             RCLCPP_INFO(this->get_logger(),"Setpoint reached");
 
@@ -291,7 +313,7 @@ void OffboardServer::execute_setpoint_request(const std::shared_ptr<GoalHandleSe
         result->reached = false; 
         goal_handle1->abort(result);
 
-        RCLCPP_ERROR(this->get_logger(), "Cannot reach the setpoint");    
+        RCLCPP_ERROR(this->get_logger(), "Cannot reach the setpoint for some reason");    
     }
 
 
@@ -306,8 +328,8 @@ void OffboardServer::execute_setpoint_request(const std::shared_ptr<GoalHandleSe
 void OffboardServer::publish_offboard_control_mode() const {
 	OffboardControlMode msg{};
 	msg.timestamp = timestamp_.load();
-    msg.position = true;
-    msg.velocity = false;
+    msg.position = false;
+    msg.velocity = true;
 	msg.acceleration = false;
 	msg.attitude = false;
 	msg.body_rate = false;

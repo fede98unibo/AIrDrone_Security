@@ -49,11 +49,11 @@ public:
     setpoints.push_back(stp);
     stp.x = 5.0;
     stp.y = 5.0;
-    stp.z = -2.5;
+    stp.z = -3.5;
     setpoints.push_back(stp);
     stp.x = 0.0;
     stp.y = 5.0;
-    stp.z = -2.5;
+    stp.z = -1.5;
     setpoints.push_back(stp);
     stp.x = 0.0;
     stp.y = 0.0;
@@ -109,6 +109,8 @@ public:
         send_goal_options.result_callback =
           std::bind(&OffboardClient::result_callback, this, _1);
         this->client_ptr_->async_send_goal(goal_msg, send_goal_options);
+
+        sleep(100);
         
         clientState = Waiting;
       
@@ -125,7 +127,7 @@ public:
       {
         RCLCPP_INFO(this->get_logger(), "Sending setpoint goal: %f, %f, %f", setpoints[count].x, setpoints[count].y, setpoints[count].z);
 
-        if(count == 4){
+        if(count == 3){
 
           sleep(5);
 
@@ -135,8 +137,6 @@ public:
           return;}
 
         sleep(2);
-
-        RCLCPP_INFO(this->get_logger(), "Sending first setpoint");
 
         if (!this->setpoint_client_ptr_->wait_for_action_server()) {
         RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
@@ -159,25 +159,25 @@ public:
         // rclcpp::Rate rate(5);
         // rate.sleep();
 
-        sleep(5);
+        // sleep(5);
 
-        RCLCPP_INFO(this->get_logger(), "Sending second setpoint");  
+        // RCLCPP_INFO(this->get_logger(), "Sending second setpoint");  
 
-        if (!this->setpoint_client_ptr_->wait_for_action_server()) {
-        RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
-        rclcpp::shutdown();}
+        // if (!this->setpoint_client_ptr_->wait_for_action_server()) {
+        // RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
+        // rclcpp::shutdown();}
 
-        goal_msg1.x = setpoints[count+1].x;
-        goal_msg1.y = setpoints[count+1].y;
-        goal_msg1.z = setpoints[count+1].z;
+        // goal_msg1.x = setpoints[count+1].x;
+        // goal_msg1.y = setpoints[count+1].y;
+        // goal_msg1.z = setpoints[count+1].z;
 
-        this->setpoint_client_ptr_->async_send_goal(goal_msg1, send_goal_options1);
+        // this->setpoint_client_ptr_->async_send_goal(goal_msg1, send_goal_options1);
 
-        RCLCPP_INFO(this->get_logger(), "Setpoint goal sent, switching to Travel");  
+        // RCLCPP_INFO(this->get_logger(), "Setpoint goal sent, switching to Travel");  
 
-        // rclcpp::Rate rate1(50);
-        // rate1.sleep();
-        sleep(100);
+        // // rclcpp::Rate rate1(50);
+        // // rate1.sleep();
+        // sleep(100);
 
         clientState = Travel;  
       }

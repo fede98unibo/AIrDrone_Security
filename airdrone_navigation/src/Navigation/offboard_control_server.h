@@ -27,18 +27,20 @@
 #include <px4_msgs/msg/vehicle_local_position.hpp>
 #include <px4_msgs/msg/vehicle_attitude_groundtruth.hpp>
 
+#include "trajectory_generator.hpp"
+
+#define TIMEOUT 500
+
 using namespace std::chrono;
 using namespace std::chrono_literals;
 using namespace px4_msgs::msg;
 using namespace std;
 
 
-enum serverMode_t {MissionMode, LandingMode};
-enum serverState_t {OffState, IdleState, BusyState, ErrorState};
-enum controlType_t{CtrlPos, CtrlVel, CtrlPosVel}; 
-
 namespace offboard_control_server
 {
+
+enum serverState_t {OffState, IdleState, BusyState, ErrorState};
 
 class OffboardServer : public rclcpp::Node
 {
@@ -55,12 +57,10 @@ public:
         RCLCPP_INFO(this->get_logger(), "Starting Offboard Server");
 
         //Initilize private attibutes
-        serverState = OffState;
+        lastTrajectoryUpdate_ = std::chrono::high_resolution_clock::now();
         currentPosition.x = 0;
         currentPosition.y = 0;
         currentPosition.z = 0;
-        setpntReached = false;
-        offboardActive = false;
         cmdAck_.result = -1;
         cmdAck_.command = -1;
 
@@ -101,6 +101,10 @@ public:
                         currentPosition.x = msg->x;
                         currentPosition.y = msg->y;
                         currentPosition.z = msg->z;
+                        
+                        currentSpeed.x = msg->vx;
+                        currentSpeed.y = msg->vy;
+                        currentSpeed.z = msg->vz;
                 });
 
         vehicle_attitude_sub_ = 
@@ -114,21 +118,38 @@ public:
             [this](const VehicleCommandAck::UniquePtr msg){
                     cmdAck_.command = msg->command;
                     cmdAck_.result = msg->result;
+            }); 
+
+        trajectory_sub_ = 
+        this->create_subscription<TrajectorySetpoint>("visual_tracker_trajectory", 1, 
+            [this](const TrajectorySetpoint::UniquePtr msg){
+
+                if(serverState == IdleState){
+                    
+                    speedcontrolActive = true;  //TODO: set a timeout to reset it to false... in the main loop
+                    lastTrajectoryUpdate_ = std::chrono::high_resolution_clock::now();
+                    
+                    trajectory.vx = msg->vx;
+                    trajectory.vy = msg->vy;
+                    trajectory.vz = msg->vz;
+                }
             });    
     }
 
 private:
 
     /*** Server Private Attributes ***/
-    serverMode_t serverMode;
-    serverState_t serverState;
+    serverState_t serverState{OffState};
 
 	TrajectorySetpoint trajectory{};
     geometry_msgs::msg::Point currentPosition;
+    geometry_msgs::msg::Point currentSpeed;
     geometry_msgs::msg::Point currentSetpoint;
     
-    bool setpntReached;
-    bool offboardActive;
+    bool setpntReached{false};
+    bool offboardActive{false};
+    bool speedcontrolActive{false};
+    std::chrono::time_point<std::chrono::high_resolution_clock> lastTrajectoryUpdate_;
     VehicleCommandAck cmdAck_;
 
     /***/
@@ -143,8 +164,11 @@ private:
 	rclcpp::Subscription<Timesync>::SharedPtr timesync_sub_;
     rclcpp::Subscription<VehicleLocalPosition>::SharedPtr vehicle_position_sub;
     rclcpp::Subscription<VehicleAttitudeGroundtruth>::SharedPtr vehicle_attitude_sub_;
+    rclcpp::Subscription<TrajectorySetpoint>::SharedPtr trajectory_sub_;
 
     std::atomic<uint64_t> timestamp_;   //!< common synced timestamped
+
+    TrajectoryGenerator TJ;   // Trajectory Generator;
 
     rclcpp_action::GoalResponse handle_offboard_request_goal(const rclcpp_action::GoalUUID & uuid, std::shared_ptr<const Offboard::Goal> goal);
     rclcpp_action::CancelResponse handle_offboard_request_cancel(const std::shared_ptr<GoalHandleOffboard> goal_handle);
@@ -157,15 +181,13 @@ private:
     void execute_setpoint_request(const std::shared_ptr<GoalHandleSetpoint> goal_handle);
     bool new_setpnt_received{false};
 
-
 	void publish_offboard_control_mode() const;
 	void publish_trajectory_setpoint();
 	void publish_vehicle_command(uint16_t command, float param1 = 0.0, float param2 = 0.0) const;
     
     //Auxiliary Functions
-    vector<vector<float>> generate_polynomial(geometry_msgs::msg::Point dest, float time);
+    vector<vector<float>> generate_polynomial(geometry_msgs::msg::Point dest, float time); //Deprecated
     int wait_for_command_ack(int command_ID, int timeout);
-
 };
 
 }
