@@ -1,9 +1,20 @@
 # AIrDrone_Security
 
-AIrDrone Security packages:
+Progect Description: ....
+Progect mission: ...
 
-- airdrone_navigation
-- airdrone_sensor
+# Installation
 
-# Usage
-In order to use this pkg u must follow the ROS2 and PX4 installation at https://docs.px4.io/master/en/ .
+
+# Packages overview and usage
+## airdrone_manager ##
+
+## airdrone_navigation ##
+
+## airdrone_actions ##
+
+## camera_manager ##
+
+## yolo_ros ##
+
+
