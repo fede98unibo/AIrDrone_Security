@@ -24,7 +24,9 @@ QUEUE_LEN = 1
 
 class YoloNode(Node):
     def __init__(self, image_topic: str, detection_topic: str, network: Yolo, compressed: bool):
-        super().__init__(network.name.replace("-", "_"))
+        super().__init__(network.name.replace("-", "_"),
+                            allow_undeclared_parameters=True,
+                            automatically_declare_parameters_from_overrides=True)
 
         if compressed:
             self.subscriber = self.create_subscription(
@@ -39,8 +41,12 @@ class YoloNode(Node):
             Detection2DArray, detection_topic, QUEUE_LEN
         )
 
+        # Get node parameters
+        self.distance_th = self.get_parameter('distance_treshold').value
+        self.history_timeout = self.get_parameter('history_timeout').value
+
         self.bridge = CvBridge()
-        self.follower = Follower(300, 5)
+        self.follower = Follower(self.distance_th,self.history_timeout)
 
         self.network = network
 
@@ -100,7 +106,7 @@ def main(args=None):
     rclpy.init(args=args)
 
     tiny = True
-    input_size = 416
+    input_size = 608
     confidence_threshold = 0.4
     nms_threshold = 0.4
     compressed = False
