@@ -29,7 +29,7 @@ using namespace std::chrono_literals;
 using namespace Eigen;
 using std::placeholders::_1;
 
-enum trackerState_t {IDLE,SEARCH,TRACKING,STABILIZE};
+enum trackerState_t {IDLE,SEARCH,TRACKING,ERROR};
 
 class VisualTracker : public rclcpp::Node
 {
@@ -77,14 +77,22 @@ class VisualTracker : public rclcpp::Node
     //*** TRACKING CONTROLLER PARAMS ***//
     double Kp_track;
     double Ki_track;
+    double T_ti;
     double TARGET_SIZE; //[pixel]
     double TRACKING_ERROR;
     int TIMEOUT; //[ms]
+    double tracking_altitude;
+    px4_msgs::msg::VehicleLocalPosition vehicle_position;
     geometry_msgs::msg::Point commanded_speed;
+    double saturation_error{0};
+    double saturation_error_elevation{0};
+    double max_speed{0};
     //int has_moved();
 
+    void run_state_idle(){}
     void run_state_search();
     void run_state_tracking();
+    void run_state_error();
     void run();
 
     void publish_gimbal_attitude(std::array<double,3> rpy, std::array<double,3> gimbal_speed);
