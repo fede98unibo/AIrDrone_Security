@@ -8,10 +8,13 @@
 
       # Tracking
       K_p_tracking: 0.01
-      K_i_tracking: 0.1
-      Target_detection_box_size: 70.0
+      K_i_tracking: 0.03
+      T_ti_tracking: 2.5
+      Target_detection_box_size: 60.0
       Tracking_error: 5.0
       Target_lost_TimeOut: 3500
+      Max_tracking_speed: 3.0
+      Tracking_altitude: -2.5
 
 
 
